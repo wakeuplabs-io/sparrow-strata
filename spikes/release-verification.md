@@ -1,6 +1,6 @@
 # Release Verification
 
-This document details the GPG release signing and verification process within Strata. This deliverable fulfills the requirement from [PROPOSAL.md](.cursor/PROPOSAL.md) (Phase 1, Key Activity: "Define the multi-employee release signing process using GPG, including key publication and verification instructions for end users", and Deliverable: "Multi-employee release signing spike and user-facing verification documentation").
+This document details the GPG release signing and verification process within Strata. This deliverable fulfills the requirement from the proposal's phase 1: "Define the multi-employee release signing process using GPG, including key publication and verification instructions for end users".
 
 ---
 
@@ -16,9 +16,9 @@ A release is considered valid if the manifest signature can be verified by **any
 
 Each release ships three artifacts alongside the binaries:
 
--   **Manifest** (`sparrow-<version>-manifest.txt`): a plain-text file with one line per release file in the format `<sha256hex>  <filename>`.
--   **Signature** (`sparrow-<version>-manifest.txt.asc`): a detached armored GPG signature over the manifest.
--   **Binaries**: the actual installers and archives whose hashes are listed in the manifest.
+- **Manifest** (`sparrow-<version>-manifest.txt`): a plain-text file with one line per release file in the format `<sha256hex>  <filename>`.
+- **Signature** (`sparrow-<version>-manifest.txt.asc`): a detached armored GPG signature over the manifest.
+- **Binaries**: the actual installers and archives whose hashes are listed in the manifest.
 
 #### Trust store
 
@@ -34,9 +34,9 @@ Every file in that directory is loaded at startup by `PGPUtils.getApplicationKey
 
 When verifying a signature, the app tries the following key sources in order:
 
-1.  **User-supplied key** — a `.asc` file the user provides manually in the UI (`PGPKeySource.USER`).
-2.  **System GnuPG keyring** — `~/.gnupg/pubring.kbx` or `pubring.gpg`, or the path in `$GNUPGHOME` (`PGPKeySource.GPG`).
-3.  **Bundled application keys** — everything in `drongo/src/main/resources/gpg/` (`PGPKeySource.APPLICATION`).
+1. **User-supplied key** — a `.asc` file the user provides manually in the UI (`PGPKeySource.USER`).
+2. **System GnuPG keyring** — `~/.gnupg/pubring.kbx` or `pubring.gpg`, or the path in `$GNUPGHOME` (`PGPKeySource.GPG`).
+3. **Bundled application keys** — everything in `drongo/src/main/resources/gpg/` (`PGPKeySource.APPLICATION`).
 
 One valid signature from any of these sources is sufficient. The result includes the signer's user ID, fingerprint, and whether the key was expired at the time of signing.
 
@@ -52,22 +52,11 @@ The RFP requires that "The user SHOULD be able to cryptographically verify that 
 
 To address the "multiple employees" requirement more robustly while still providing a single `.asc` file for user convenience:
 
-1.  **Combined Signatures:** Multiple team members will sign the same manifest file, and their individual detached GPG signatures will be concatenated into a *single* `sparrow-<version>-manifest.txt.asc` file. This single file will then be published for users to download.
-
-    Example for combining signatures:
-    ```bash
-    # Assuming Alice and Bob sign manifest.txt
-    gpg --detach-sign --armor --output manifest.txt.alice.asc manifest.txt
-    gpg --detach-sign --armor --output manifest.txt.bob.asc manifest.txt
-    cat manifest.txt.alice.asc manifest.txt.bob.asc > combined-manifest.txt.asc
-    ```
-
-2.  **Code Modification for Verification Policy:** The application's `PGPUtils.verify` method currently returns after finding the *first* valid signature. To enforce a multi-employee policy, this logic will be modified to:
-    *   **Collect all valid signatures:** Iterate through all signatures present in the combined `.asc` file and collect `PGPVerificationResult` for every successfully verified signature against the bundled (or other trusted) public keys.
-    *   **Apply a policy:** Introduce logic to evaluate the collected signatures against a defined policy. This policy could be:
-        *   **N-of-M signers:** Require a minimum number (N) of distinct trusted signers from the `PGPKeySource.APPLICATION` to be present.
-        *   **Specific signers:** Require a specific set of predefined team members to have signed the release.
-    *   The UI would then reflect whether the release meets the multi-employee approval criteria.
+1. **Combined Signatures:** Multiple team members will sign the same manifest file, and their individual detached GPG signatures will be concatenated into a *single* `sparrow-<version>-manifest.txt.asc` file. This single file will then be published for users to download.
+2. **Code Modification for Verification Policy:** The application's `PGPUtils.verify` method currently returns after finding the *first* valid signature. To enforce a multi-employee policy, this logic will be modified to:
+  - **Collect all valid signatures:** Iterate through all signatures present in the combined `.asc` file and collect `PGPVerificationResult` for every successfully verified signature against the bundled (or other trusted) public keys.
+  - **Enumerate all signers:** Collect all signatures and display them in the UI.
+  - The UI would then clearly indicate the status of each signature (e.g., missing, invalid, valid) and which signers are associated with the release.
 
 This approach allows users to verify with a single signature file, while the application programmatically enforces the "multiple employees" requirement based on the actual signatures contained within.
 
@@ -79,33 +68,32 @@ This approach allows users to verify with a single signature file, while the app
 
 Instead of directly modifying the `drongo` submodule, we will use a build-time overlay approach to manage Alpen's trusted GPG public keys. This strategy offers the following benefits:
 
--   **Canonical Keys in Main Repo:** The team's canonical GPG public keys (`.asc` files) will reside in the main `sparrow-strata` repository, e.g., in `config/gpg/`.
--   **Drongo Submodule Independence:** The `drongo` submodule can remain pinned to upstream commits without needing to fork it solely for key management.
--   **Simplified Submodule Updates:** Updating the `drongo` submodule will not inadvertently overwrite or remove team's trusted public keys.
+- **Canonical Keys in Main Repo:** The team's canonical GPG public keys (`.asc` files) will reside in the main `alpenlabs/sparrow` repository, e.g., in `config/gpg/`.
+- **Drongo Submodule Independence:** The `drongo` submodule can remain pinned to upstream commits without needing to fork it solely for key management.
+- **Simplified Submodule Updates:** Updating the `drongo` submodule will not inadvertently overwrite or remove team's trusted public keys.
 
 #### Implementation Steps for Build-time Overlay:
 
-1.  **Define a dedicated directory** in `sparrow-strata` repository for the team's GPG public keys, e.g., `config/gpg/`.
-2.  **Place the team's public keys** (exported as `.asc` files) into this directory.
-3.  **Create a Gradle task** within `sparrow-strata` (e.g., in `build.gradle` or a custom `*.gradle` file) that performs the following actions:
-    *   Wipes the contents of `drongo/src/main/resources/gpg/`.
-    *   Copies the team's `.asc` files from `config/gpg/` into `drongo/src/main/resources/gpg/`.
-4.  **Hook this Gradle task** to an appropriate build phase, such as `:drongo:processResources` or `:drongo:compileJava`, to ensure it runs before the `drongo` JAR is packaged.
+1. **Define a dedicated directory** in `alpenlabs/sparrow` repository for the team's GPG public keys, e.g., `config/gpg/`.
+2. **Place the team's public keys** (exported as `.asc` files) into this directory.
+3. **Create a Gradle task** within `alpenlabs/sparrow` (e.g., in `build.gradle` or a custom `*.gradle` file) that performs the following actions:
+  - Wipes the contents of `drongo/src/main/resources/gpg/`.
+  - Copies the team's `.asc` files from `config/gpg/` into `drongo/src/main/resources/gpg/`.
+4. **Hook this Gradle task** to an appropriate build phase, such as `:drongo:processResources` or `:drongo:compileJava`, to ensure it runs before the `drongo` JAR is packaged.
 
 #### Detailed Steps for Key Management:
 
-1.  **Generate a GPG keypair for each team member**
-    Each team member who will sign releases needs a GPG key:
-    Use RSA 4096 or Ed25519. The key identity (name and email) will be shown to the user in the "Signed By" field during verification, so use something recognizable.
-2.  **Export each public key**
-    ```shell
+1. **Generate a GPG keypair for each team member**
+  Each team member who will sign releases needs a GPG key: Use RSA 4096 or Ed25519. The key identity (name and email) will be shown to the user in the "Signed By" field during verification, so use something recognizable.
+2. **Export each public key**
+  ```shell
     gpg --armor --export team@email.com > TeamMember_team@email.com.asc
-    ```
+  ```
     Use a descriptive filename — by convention the existing keys follow the pattern `Firstname_Lastname_email.asc`, e.g. `TeamMember_team@example.com.asc`.
-3.  **Place keys in `config/gpg/`**
-    Copy the team's exported public keys into the dedicated directory:
-4.  **Create Gradle task (example `build.gradle` snippet)**
-    This is an example of how one might configure the Gradle task. Adaptation to the specific `build.gradle` structure would be required.
+3. **Place keys in `config/gpg/`**
+  Copy the team's exported public keys into the dedicated directory:
+4. **Create Gradle task (example `build.gradle` snippet)**
+  This is an example of how one might configure the Gradle task. Adaptation to the specific `build.gradle` structure would be required.
     This task will ensure that `drongo/src/main/resources/gpg/` always contains only the team's specified keys at build time.
 5. Sign a release
 
@@ -149,9 +137,9 @@ They need to supply:
 
 The dialog reports:
 
--   **Signed By** — the user ID and fingerprint from the matched key(s), and whether it is bundled, from the local GnuPG keyring, or user-supplied. With the proposed multi-employee solution, this section would ideally list all verified signers meeting the policy.
--   **Release Hash** — the SHA-256 of the release file and whether it matched the manifest.
--   **Verified** — final pass/fail result and a link to open the installer.
+- **Signed By** — the user ID and fingerprint from the matched key(s), and whether it is bundled, from the local GnuPG keyring, or user-supplied. With the proposed multi-employee solution, this section would ideally list all verified signers meeting the policy.
+- **Release Hash** — the SHA-256 of the release file and whether it matched the manifest.
+- **Verified** — final pass/fail result and a link to open the installer.
 
 The app also auto-discovers the related files if they are all in the same directory: dropping any one of the three files (signature, manifest, or release) will auto-fill the others when they follow the standard naming convention.
 
