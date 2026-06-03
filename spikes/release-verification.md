@@ -181,3 +181,13 @@ gpg: Good signature from "Bob Jones (Developer) <bob@example.com>" [full]
 ```
 
 Users would need to confirm that `Alice Smith` and `Bob Jones` are indeed part of the trusted signers for the release. The interpretation of "good signature" and the identification of signers is a manual step in terminal verification.
+
+---
+
+## Open questions
+
+- Is the requirement for multi-member verification intentional or Sparrow's default (single valid signature from any trusted source) enough?
+
+- Is standard upstream Sparrow reproducibility (deterministic Linux builds, best-effort macOS/Windows) sufficient, or do we need to take this further in macos with app (unsigned) reconstruction?
+
+- For Apple releases, we'll need access to an Apple Developer account for code signing and distribution. Do you already have an account set up, or would you like us to provide setup instructions? During development, will it be possible to share the necessary credentials or grant us the required access to manage code signing and release activities?
