@@ -76,26 +76,18 @@ Instead of directly modifying the `drongo` submodule, we will use a build-time o
 
 1. **Define a dedicated directory** in `alpenlabs/sparrow` repository for the team's GPG public keys, e.g., `config/gpg/`.
 2. **Place the team's public keys** (exported as `.asc` files) into this directory.
-3. **Create a Gradle task** within `alpenlabs/sparrow` (e.g., in `build.gradle` or a custom `*.gradle` file) that performs the following actions:
-  - Wipes the contents of `drongo/src/main/resources/gpg/`.
-  - Copies the team's `.asc` files from `config/gpg/` into `drongo/src/main/resources/gpg/`.
-4. **Hook this Gradle task** to an appropriate build phase, such as `:drongo:processResources` or `:drongo:compileJava`, to ensure it runs before the `drongo` JAR is packaged.
+3. **Build-time overlay (POC: `gradle/gpg-overlay.gradle`)** — configured from the Strata root via `apply from:` in `build.gradle`; no `drongo` fork required. `:drongo:overlayTeamGpgKeys` copies `config/gpg/*.asc` into `drongo/build/generated-resources/gpg/`. `:drongo:processResources` excludes upstream `gpg/**` from the submodule tree and merges the overlay so only team keys ship in the JAR.
+4. **Verify overlay** — `./gradlew :drongo:listBundledGpgKeys` lists `gpg/*.asc` entries packaged in `drongo.jar`.
 
 #### Detailed Steps for Key Management:
 
 1. **Generate a GPG keypair for each team member**
-  Each team member who will sign releases needs a GPG key: Use RSA 4096 or Ed25519. The key identity (name and email) will be shown to the user in the "Signed By" field during verification, so use something recognizable.
-2. **Export each public key**
-  ```shell
-    gpg --armor --export team@email.com > TeamMember_team@email.com.asc
-  ```
-    Use a descriptive filename — by convention the existing keys follow the pattern `Firstname_Lastname_email.asc`, e.g. `TeamMember_team@example.com.asc`.
-3. **Place keys in `config/gpg/`**
-  Copy the team's exported public keys into the dedicated directory:
-4. **Create Gradle task (example `build.gradle` snippet)**
-  This is an example of how one might configure the Gradle task. Adaptation to the specific `build.gradle` structure would be required.
-    This task will ensure that `drongo/src/main/resources/gpg/` always contains only the team's specified keys at build time.
-5. Sign a release
+  Each team member who will sign releases needs to generate their own RSA 4096 GPG key. The key identity (name and email) will be shown to the user in the "Signed By" field during verification.
+2. **Public Key Management**
+  Public keys for team members are exported using `gpg --armor --export team@email.com > TeamMember_team@email.com.asc`. These keys are then placed in the `config/gpg/` directory. The naming convention `Firstname_Lastname_email.asc` (e.g., `TeamMember_team@example.com.asc`) must be adhered to.
+3. **Create Gradle task**
+  This task will ensure that `drongo/src/main/resources/gpg/` always contains only the team's specified keys at build time.
+4. Sign a release
 
 At release time, team members involved in the release process will sign the manifest. Multiple signatures should be combined into a single file for publishing.
 
