@@ -9,6 +9,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-2022, ubuntu-22.04, ubuntu-22.04-arm, macos-15-intel, macos-14]
     steps:
@@ -27,16 +28,16 @@ jobs:
         run: ./gradlew -v
       - name: Build with Gradle
         run: ./gradlew jpackage
-      - name: Codesign, package and notarize macOS distribution
-        if: ${{ runner.os == 'macOS' }}
-        uses: sparrowwallet/github-actions/codesign-macos@v1
-        with:
-          app-name: Sparrow
-          certificate: ${{ secrets.MACOS_CERTIFICATE }}
-          certificate-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          apple-id: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
-          team-id: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
-          notarization-password: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+      # - name: Codesign, package and notarize macOS distribution
+      #   if: ${{ runner.os == 'macOS' }}
+      #   uses: sparrowwallet/github-actions/codesign-macos@v1
+      #   with:
+      #     app-name: Sparrow
+      #     certificate: ${{ secrets.MACOS_CERTIFICATE }}
+      #     certificate-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      #     apple-id: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+      #     team-id: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+      #     notarization-password: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
       - name: Package Windows zip distribution
         if: ${{ runner.os == 'Windows' }}
         run: ./gradlew packageZipDistribution
