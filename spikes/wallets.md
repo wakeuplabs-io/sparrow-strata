@@ -7,10 +7,10 @@ Phase 1 spike: document the **Bitcoin transactions** `alpen-cli` builds for depo
 ## Summary
 
 
-| Flow                      | CLI command     | Who signs on-chain                                                         | Needs HW (Ledger/Trezor)?                                 |
-| ------------------------- | --------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **Deposit request (DRT)** | `alpen deposit` | User’s **L1 wallet** (BDK `SignetWallet`)                                  | **Only if** the Sparrow funding wallet uses HW for inputs |
-| **Recover (reclaim)**     | `alpen recover` | **Software** recovery wallet (ephemeral descriptor + stored `recovery_sk`) | **No** — not signed via user’s HW                         |
+| Flow                      | CLI command     | Who signs on-chain                                                    | HW Supported?                               |
+| ------------------------- | --------------- | --------------------------------------------------------------------- | ------------------------------------------- |
+| **Deposit request (DRT)** | `alpen deposit` | User’s **L1 wallet** (BDK `SignetWallet`)                             | Yes                                         |
+| **Recover (reclaim)**     | `alpen recover` | Recovery key holder (see §2) — **CLI:** ephemeral `recovery_sk` in DB | SW today; HW only if recovery = user wallet |
 
 
 Strata reclaim in the RFP reuses recover’s spend mechanics; retry deposit reuses DRT shape.
@@ -32,7 +32,7 @@ Strata reclaim in the RFP reuses recover’s spend mechanics; retry deposit reus
 | **1** | P2TR (bridge-in) | `deposit_amount + bridge_fee` | See bridge-in descriptor below                          |
 
 
-`**DrtHeaderAux` (in OP_RETURN):**
+`DrtHeaderAux` (in OP_RETURN):
 
 - `recovery_pk`: 32-byte x-only pubkey (fresh per deposit, `even_kp` + `OsRng`)
 - `DepositDescriptor`: Alpen EE account serial + Alpen address as `SubjectIdBytes`
@@ -93,7 +93,7 @@ Sparrow signs PSBTs through **Lark** (`lark/` → `LedgerClient`, `TrezorClient`
 
 ## 2. Recover transaction (RFP “reclaim” spend)
 
-**Source:** `bin/alpen-cli/src/cmd/recover.rs` (command name `recover`, not `reclaim`).
+**Source:** `bin/alpen-cli/src/cmd/recover.rs` 
 
 ### 2.1 What the CLI builds
 
@@ -106,7 +106,9 @@ For each matured entry in `DescriptorRecovery` (height ≤ current tip):
   - **Outputs:** `drain_to` → next unused address on the user’s main `SignetWallet`
   - **Fee:** user/config fee rate
 
-**Signing:** `recovery_wallet.sign(&mut psbt)` — uses the **software** `recovery_private_key` embedded in the saved descriptor. The user’s Ledger/Trezor is **not** called.
+**Signing:** `recovery_wallet.sign(&mut psbt)` — uses the **recovery private key** embedded in the saved descriptor.
+
+**Recovery key model (CLI):** Per deposit, `recovery_pk` is a **fresh ephemeral** key (`even_kp` + `OsRng`); `recovery_sk` is stored in `DescriptorRecovery`. Reclaim never uses the user’s L1 / HW wallet to sign the script-path input — only that ephemeral key. This is a product choice, not a Lark limitation on the CLI path.
 
 ### 2.2 ASCII layout
 
@@ -125,25 +127,26 @@ For each matured entry in `DescriptorRecovery` (height ≤ current tip):
 ### 2.3 Sparrow HW module corroboration (recover)
 
 
-| Recover feature                       | Lark / Sparrow support       | Notes                                                                                                                                                   |
-| ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Taproot script-path spend** (input) | HW: **not supported**        | Same Lark comment on script path — **CLI never uses HW here**                                                                                           |
-| **Software sign script path**         | Sparrow `Wallet.sign` / PSBT | `Wallet.java` finalise has `TODO: Handle taproot scriptpath spending` — **must implement** script-path finalization in Strata (likely SW-only keystore) |
-| **Drain to P2WPKH/P2TR**              | HW N/A (outputs only)        | Destination is normal user address                                                                                                                      |
+| Recover feature                        | Lark / Sparrow support       | Notes                                                                                                                                                                           |
+| -------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Taproot script-path spend** (input)  | HW: **not supported**        | Lark: *script path signing is not currently supported* (Ledger/Trezor). **Relevant only if** reclaim signs with the **user’s** wallet (incl. HW), not an ephemeral recovery key |
+| **Ephemeral recovery key (CLI model)** | SW only (by design)          | Match CLI: per-deposit `recovery_sk` in keystore/DB — no HW call for script path                                                                                                |
+| **Software sign script path**          | Sparrow `Wallet.sign` / PSBT | `Wallet.java` finalise has `TODO: Handle taproot scriptpath spending` — **must implement** for ephemeral recovery; HW path blocked until Lark adds script-path signing          |
+| **Drain to P2WPKH/P2TR**               | HW N/A (outputs only)        | Destination is normal user address                                                                                                                                              |
 
 
-**Conclusion (reclaim):** RFP reclaim **does not** require Ledger/Trezor for the recover spend. Strata must persist recovery keys and sign script-path spends in software (same as CLI). HW compatibility spike for reclaim is about **not breaking** parallel use of HW wallets for the main wallet, not signing recover itself.
+**Conclusion (reclaim):** Strata persists `recovery_sk` and signs script-path spends in software — same as `alpen recover`. Ledger/Trezor not required for reclaim; Lark script-path gap is irrelevant.
 
 ---
 
 ## 3. RFP vs CLI vs Sparrow (deposit + reclaim only)
 
 
-| RFP item                            | CLI behavior                                      | Sparrow stack today                                                     |
-| ----------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
-| 1.7 Any wallet type for **deposit** | L1 wallet-agnostic inputs; bridge out is separate | Yes for input types Lark supports                                       |
-| 2.9 HW verify deposit details       | N/A in CLI (SW sign)                              | Partial: amounts/addresses for standard outputs; not Alpen in OP_RETURN |
-| §4 Reclaim list + actions           | `recover` only; no list UI                        | Detection/UI new; spend = SW script path                                |
+| RFP item                            | CLI behavior                                      | Sparrow stack today                                                                                                   |
+| ----------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1.7 Any wallet type for **deposit** | L1 wallet-agnostic inputs; bridge out is separate | Yes for input types Lark supports                                                                                     |
+| 2.9 HW verify deposit details       | N/A in CLI (SW sign)                              | Partial: amounts/addresses for standard outputs; not Alpen in OP_RETURN                                               |
+| §4 Reclaim list + actions           | `recover` only; no list UI                        | Detection/UI new; spend = script path — SW if ephemeral recovery key (CLI parity); HW if recovery tied to user wallet |
 
 
 ---
@@ -153,15 +156,15 @@ For each matured entry in `DescriptorRecovery` (height ≤ current tip):
 Pending simulator confirmation; static analysis from `lark/` sources.
 
 
-| Capability                        | Ledger (Bitcoin app 2.x) | Trezor                | Needed for                    |
-| --------------------------------- | ------------------------ | --------------------- | ----------------------------- |
-| P2WPKH input sign                 | Yes                      | Yes                   | DRT funding                   |
-| P2TR key-path input sign          | Yes                      | Yes                   | DRT funding (Taproot wallet)  |
-| Multisig input sign               | Yes                      | Yes                   | DRT funding (multisig wallet) |
-| OP_RETURN output in same tx       | Yes (via PSBT)           | Yes (`PAYTOOPRETURN`) | DRT out[0]                    |
-| Payment to external P2TR          | Yes (not legacy app)     | Yes (`getToAddress`)  | DRT out[1]                    |
-| Taproot script-path input         | **No**                   | **No**                | Recover only → **use SW**     |
-| Decode Strata OP_RETURN on device | **No**                   | **No**                | RFP 2.9                       |
+| Capability                        | Ledger (Bitcoin app 2.x) | Trezor                | Needed for                                                            |
+| --------------------------------- | ------------------------ | --------------------- | --------------------------------------------------------------------- |
+| P2WPKH input sign                 | Yes                      | Yes                   | DRT funding                                                           |
+| P2TR key-path input sign          | Yes                      | Yes                   | DRT funding (Taproot wallet)                                          |
+| Multisig input sign               | Yes                      | Yes                   | DRT funding (multisig wallet)                                         |
+| OP_RETURN output in same tx       | Yes (via PSBT)           | Yes (`PAYTOOPRETURN`) | DRT out[0]                                                            |
+| Payment to external P2TR          | Yes (not legacy app)     | Yes (`getToAddress`)  | DRT out[1]                                                            |
+| Taproot script-path input         | **No**                   | **No**                | Reclaim **if** recovery key = user HW wallet; else SW ephemeral (CLI) |
+| Decode Strata OP_RETURN on device | **No**                   | **No**                | RFP 2.9                                                               |
 
 
 ---
@@ -169,3 +172,4 @@ Pending simulator confirmation; static analysis from `lark/` sources.
 ## 6. Open questions
 
 1. Confirm `recovery_delay` on target network (1008 in `strata_primitives`, vs older “144 block” docs).
+
