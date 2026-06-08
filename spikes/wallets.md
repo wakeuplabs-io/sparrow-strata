@@ -53,22 +53,16 @@ tr(<bridge_musig2_xonly>,
 
 **Side effects:** Persists `(bridge_in_desc, recovery_sk)` in encrypted `DescriptorRecovery` DB with `recover_at = tip + recovery_delay + finality_depth`.
 
-### 1.2 ASCII layout
+### 1.2 Transaction structure (DRT)
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ DRT (Deposit Request Transaction)                           │
-├─────────────────────────────────────────────────────────────┤
-│ IN:  user L1 UTXO(s)  [P2WPKH / P2TR / multisig / …]        │
-├─────────────────────────────────────────────────────────────┤
-│ OUT[0]: OP_RETURN(0)  → SPS-50 + recovery_pk + DepositDesc  │
-│ OUT[1]: P2TR          → value = d + bridge_fee              │
-│         internal_key = bridge MuSig2                        │
-│         tapscript    = pk(recovery) + older(delay)          │
-├─────────────────────────────────────────────────────────────┤
-│ OUT[?]: change → user L1 wallet (BDK)                       │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Transaction Type**: DRT (Deposit Request Transaction)
+- **Inputs (`IN`)**: User L1 UTXO(s) (e.g., `P2WPKH`, `P2TR`, multisig, etc.)
+- **Outputs (`OUT`)**:
+  - **`OUT[0]`**: `OP_RETURN` (0 value) containing: `SPS-50` + `recovery_pk` + `DepositDesc`
+  - **`OUT[1]`**: `P2TR` containing: value = `d` + `bridge_fee`
+    - **Internal Key**: Bridge MuSig2 aggregate key
+    - **Tapscript (Script Path)**: `pk(recovery) + older(delay)`
+  - **`OUT[?]` (Optional)**: Change output, sent back to the user's L1 wallet (BDK)
 
 ### 1.3 Sparrow HW module corroboration (deposit / DRT)
 
@@ -110,19 +104,13 @@ For each matured entry in `DescriptorRecovery` (height ≤ current tip):
 
 **Recovery key model (CLI):** Per deposit, `recovery_pk` is a **fresh ephemeral** key (`even_kp` + `OsRng`); `recovery_sk` is stored in `DescriptorRecovery`. Reclaim never uses the user’s L1 / HW wallet to sign the script-path input — only that ephemeral key. This is a product choice, not a Lark limitation on the CLI path.
 
-### 2.2 ASCII layout
+### 2.2 Transaction structure (Recover)
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ Recover tx                                                  │
-├─────────────────────────────────────────────────────────────┤
-│ IN:  DRT bridge-in P2TR UTXO(s)                             │
-│      SPEND: tapscript pk(recovery) + older(delay)  [branch 1]│
-│      SIGN:  recovery_sk (software, from DescriptorRecovery) │
-├─────────────────────────────────────────────────────────────┤
-│ OUT: drain → user L1 receive address (+ fee)                │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Transaction Type**: Recover Transaction
+- **Inputs (`IN`)**: DRT bridge-in P2TR UTXO(s)
+  - **Spend Path**: Tapscript `pk(recovery) + older(delay)` [branch 1]
+  - **Signing Key**: `recovery_sk` (software-based, retrieved from `DescriptorRecovery` DB)
+- **Outputs (`OUT`)**: Drain to user L1 receive address (+ fee deduction)
 
 ### 2.3 Sparrow HW module corroboration (recover)
 
