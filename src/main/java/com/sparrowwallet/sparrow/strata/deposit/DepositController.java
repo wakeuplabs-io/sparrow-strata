@@ -2,7 +2,15 @@ package com.sparrowwallet.sparrow.strata.deposit;
 
 import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.BitcoinUnit;
+import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
+import com.sparrowwallet.drongo.wallet.InsufficientFundsException;
+import com.sparrowwallet.drongo.wallet.Wallet;
+import com.sparrowwallet.drongo.wallet.WalletNode;
+import com.sparrowwallet.drongo.wallet.WalletNodePayment;
+import com.sparrowwallet.drongo.wallet.WalletTransaction;
+import com.sparrowwallet.drongo.protocol.Transaction;
+import com.sparrowwallet.drongo.psbt.PSBT;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.sparrow.*;
 import com.sparrowwallet.sparrow.control.*;
@@ -11,6 +19,10 @@ import com.sparrowwallet.sparrow.glyphfont.FontAwesome5;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.net.FeeRatesSource;
 import com.sparrowwallet.sparrow.net.MempoolRateSize;
+import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
+import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
+import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.wallet.FeeRatesSelection;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import javafx.application.Platform;
@@ -20,6 +32,8 @@ import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
+import javafx.concurrent.Service;
+import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -137,11 +151,15 @@ public class DepositController extends WalletFormController implements Initializ
 
     private ValidationSupport validationSupport;
 
+    private final ObjectProperty<AlpenAddressParseResult> depositAddressProperty = new SimpleObjectProperty<>(null);
+
     private final SimpleBooleanProperty userFeeSet = new SimpleBooleanProperty(false);
 
     private final ObjectProperty<FeeRatesSelection> feeRatesSelectionProperty = new SimpleObjectProperty<>(null);
 
     private boolean updateDefaultFeeRate;
+
+    private DepositFeeService depositFeeService;
 
     private final ChangeListener<String> feeListener = new ChangeListener<>() {
         @Override
@@ -171,6 +189,7 @@ public class DepositController extends WalletFormController implements Initializ
 
             targetBlocks.setTooltip(new Tooltip("Target inclusion within " + target + " blocks"));
             userFeeSet.set(false);
+            updateFee();
         }
     };
 
@@ -179,6 +198,7 @@ public class DepositController extends WalletFormController implements Initializ
         public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue) {
             setFeeRate(getFeeRangeRate());
             userFeeSet.set(false);
+            updateFee();
         }
     };
 
@@ -193,13 +213,17 @@ public class DepositController extends WalletFormController implements Initializ
         initializeAmountFields();
         initializeFeeSection();
         updateConfirmButton();
+        updateFee();
     }
 
     private void addValidation() {
         validationSupport = new ValidationSupport();
         validationSupport.setValidationDecorator(new StyleClassValidationDecoration());
 
-        validationSupport.registerValidator(depositTo, false, Validator.createEmptyValidator("Deposit address is required"));
+        validationSupport.registerValidator(depositTo, false, Validator.combine(
+                Validator.createEmptyValidator("Deposit address is required"),
+                (Control control, String value) -> validateDepositAddress(control, value)
+        ));
         validationSupport.registerValidator(label, false, Validator.createEmptyValidator("Label is required"));
         validationSupport.registerValidator(amount, false, (Control control, String value) -> {
             if(value == null || value.isEmpty()) {
@@ -217,9 +241,40 @@ public class DepositController extends WalletFormController implements Initializ
         });
 
         validationSupport.validationResultProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
-        depositTo.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
+        depositTo.textProperty().addListener((observable, oldValue, newValue) -> {
+            updateConfirmButton();
+            updateFee();
+        });
         label.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
-        amount.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
+        amount.textProperty().addListener((observable, oldValue, newValue) -> {
+            updateConfirmButton();
+            updateFee();
+        });
+    }
+
+    private ValidationResult validateDepositAddress(Control control, String value) {
+        if(value == null || value.isBlank()) {
+            depositAddressProperty.set(null);
+            return new ValidationResult();
+        }
+
+        try {
+            AlpenAddressParseResult result = AlpenAddressParser.parse(value, Network.get());
+            depositAddressProperty.set(result);
+            return new ValidationResult();
+        } catch(IllegalArgumentException e) {
+            depositAddressProperty.set(null);
+            String message = e.getMessage();
+            if(message == null || message.isBlank() || "Deposit address is required".equals(message)) {
+                message = AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE;
+            }
+            return ValidationResult.fromError(control, message);
+        }
+    }
+
+    public DepositDescriptor getDepositDescriptor() {
+        AlpenAddressParseResult result = depositAddressProperty.get();
+        return result == null ? null : result.getDepositDescriptor();
     }
 
     private void initializeAmountFields() {
@@ -231,6 +286,7 @@ public class DepositController extends WalletFormController implements Initializ
                 setAmountValueSats(value);
             }
             updateConfirmButton();
+            updateFee();
         });
     }
 
@@ -322,8 +378,68 @@ public class DepositController extends WalletFormController implements Initializ
                 setFeeValueSats(value);
             }
         });
+    }
 
-        fee.setText("0");
+    private void updateFee() {
+        if(userFeeSet.get()) {
+            return;
+        }
+
+        DepositDescriptor descriptor = getDepositDescriptor();
+        Long amountSats = getAmountValueSats();
+        if(descriptor == null || amountSats == null || amountSats <= 0) {
+            clearFee();
+            return;
+        }
+
+        Double feeRate = getFeeRate();
+        if(feeRate == null) {
+            clearFee();
+            return;
+        }
+
+        if(depositFeeService != null && depositFeeService.isRunning()) {
+            depositFeeService.setIgnoreResult(true);
+            depositFeeService.cancel();
+        }
+
+        String depositLabel = label.getText() == null || label.getText().isBlank() ? "deposit" : label.getText();
+        Wallet wallet = getWalletForm().getWallet();
+        depositFeeService = new DepositFeeService(
+                wallet,
+                descriptor,
+                amountSats,
+                depositLabel,
+                feeRate,
+                getMinimumFeeRate(),
+                AppServices.getMinimumRelayFeeRate(),
+                AppServices.getCurrentBlockHeight(),
+                Config.get().isGroupByAddress(),
+                Config.get().isIncludeMempoolOutputs()
+        );
+
+        final DepositFeeService currentService = depositFeeService;
+        depositFeeService.setOnSucceeded(event -> {
+            if(!currentService.isIgnoreResult()) {
+                WalletTransaction walletTransaction = currentService.getValue();
+                if(walletTransaction != null) {
+                    setFeeValueSats(walletTransaction.getFee());
+                }
+            }
+        });
+        depositFeeService.setOnFailed(event -> {
+            if(!currentService.isIgnoreResult()) {
+                clearFee();
+            }
+        });
+        depositFeeService.start();
+    }
+
+    private void clearFee() {
+        fee.textProperty().removeListener(feeListener);
+        fee.setText("");
+        fee.textProperty().addListener(feeListener);
+        fiatFeeAmount.setText("");
     }
 
     private void updateConfirmButton() {
@@ -361,7 +477,85 @@ public class DepositController extends WalletFormController implements Initializ
 
     @FXML
     public void confirm(ActionEvent event) {
-        AppServices.showWarningDialog("Deposit mockup", "Deposit confirmation flow is not yet implemented.");
+        DepositDescriptor descriptor = getDepositDescriptor();
+        if(descriptor == null) {
+            AppServices.showErrorDialog("Invalid deposit", AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            return;
+        }
+
+        Long amountSats = getAmountValueSats();
+        if(amountSats == null || amountSats <= 0) {
+            AppServices.showErrorDialog("Invalid amount", "Enter a valid deposit amount.");
+            return;
+        }
+
+        try {
+            Double feeRate = getUserFeeRate();
+            if(feeRate == null) {
+                AppServices.showErrorDialog("Unknown fee rate", "Fee rates are not available. Check your connection and try again.");
+                return;
+            }
+
+            Long userFee = userFeeSet.get() ? getFeeValueSats() : null;
+            double minimumFeeRate = getMinimumFeeRate();
+            Wallet wallet = getWalletForm().getWallet();
+            DepositRequestService service = new DepositRequestService(
+                    wallet,
+                    descriptor,
+                    amountSats,
+                    label.getText(),
+                    feeRate,
+                    minimumFeeRate,
+                    AppServices.getMinimumRelayFeeRate(),
+                    userFee,
+                    AppServices.getCurrentBlockHeight(),
+                    Config.get().isGroupByAddress(),
+                    Config.get().isIncludeMempoolOutputs()
+            );
+
+            DepositRequestService.DepositRequestResult result = service.createWalletTransaction();
+            addWalletTransactionNodes(result.walletTransaction());
+            getWalletForm().setCreatedWalletTransaction(result.walletTransaction());
+            PSBT psbt = result.walletTransaction().createPSBT();
+            DepositPsbtOrdering.align(psbt, result.walletTransaction());
+            EventManager.get().post(new ViewPSBTEvent(confirmButton.getScene().getWindow(), label.getText(), null, psbt));
+        } catch(InsufficientFundsException e) {
+            AppServices.showErrorDialog("Insufficient funds", e.getMessage());
+        } catch(DepositRequestException e) {
+            log.error("Failed to create deposit request transaction", e);
+            AppServices.showErrorDialog("Deposit failed", e.getMessage());
+        } catch(IllegalStateException e) {
+            log.error("Failed to create deposit request transaction", e);
+            AppServices.showErrorDialog("Deposit unavailable", e.getMessage());
+        }
+    }
+
+    private void addWalletTransactionNodes(WalletTransaction walletTransaction) {
+        Set<WalletNode> nodes = new LinkedHashSet<>(walletTransaction.getSelectedUtxos().values());
+        nodes.addAll(walletTransaction.getChangeMap().keySet());
+        nodes.addAll(walletTransaction.getWalletNodePayments().stream().map(WalletNodePayment::getWalletNode).collect(Collectors.toList()));
+        getWalletForm().addWalletTransactionNodes(nodes);
+    }
+
+    private Double getUserFeeRate() {
+        return userFeeSet.get() ? AppServices.getMinimumRelayFeeRate() : getFeeRate();
+    }
+
+    private Double getFeeRate() {
+        if(targetBlocksField.isVisible()) {
+            return getTargetBlocksFeeRates().get(getTargetBlocks());
+        }
+        return getFeeRangeRate();
+    }
+
+    private Double getMinimumFeeRate() {
+        Optional<Double> optMinFeeRate = getTargetBlocksFeeRates().values().stream().min(Double::compareTo);
+        double minRate = optMinFeeRate.orElse(getFallbackFeeRate());
+        Double userFeeRate = getFeeRate();
+        if(userFeeRate != null) {
+            minRate = Math.min(userFeeRate, minRate);
+        }
+        return Math.max(minRate, Transaction.DEFAULT_MIN_RELAY_FEE);
     }
 
     private BitcoinUnit getBitcoinUnit(BitcoinUnit bitcoinUnit) {
@@ -565,6 +759,8 @@ public class DepositController extends WalletFormController implements Initializ
             }
             updateDefaultFeeRate = false;
         }
+
+        updateFee();
     }
 
     @Subscribe
@@ -610,5 +806,35 @@ public class DepositController extends WalletFormController implements Initializ
             return bitcoinUnit.getSatsValue(fieldValue);
         }
         return null;
+    }
+
+    private static class DepositFeeService extends Service<WalletTransaction> {
+        private final DepositRequestService depositRequestService;
+        private boolean ignoreResult;
+
+        public DepositFeeService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label,
+                                 double feeRate, double minimumFeeRate, double minRelayFeeRate,
+                                 Integer currentBlockHeight, boolean groupByAddress, boolean includeMempoolOutputs) {
+            this.depositRequestService = new DepositRequestService(wallet, depositDescriptor, amountSats, label,
+                    feeRate, minimumFeeRate, minRelayFeeRate, null, currentBlockHeight, groupByAddress, includeMempoolOutputs);
+        }
+
+        @Override
+        protected Task<WalletTransaction> createTask() {
+            return new Task<>() {
+                @Override
+                protected WalletTransaction call() throws Exception {
+                    return depositRequestService.createWalletTransaction().walletTransaction();
+                }
+            };
+        }
+
+        public boolean isIgnoreResult() {
+            return ignoreResult;
+        }
+
+        public void setIgnoreResult(boolean ignoreResult) {
+            this.ignoreResult = ignoreResult;
+        }
     }
 }

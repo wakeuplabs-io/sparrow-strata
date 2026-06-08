@@ -1,0 +1,29 @@
+package com.sparrowwallet.sparrow.strata.deposit;
+
+import com.sparrowwallet.drongo.Utils;
+import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
+import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class Sps50EncoderTest {
+    private static final String RECOVERY_PK = "89f96f834e39766f97e245d70b27236681f741ae51c117df19761af7cb2f657e";
+    private static final String SUBJECT = "5400000000000000000000000000000000000001";
+
+    @Test
+    void encodesDepositRequestTag() {
+        byte[] recoveryPk = Utils.hexToBytes(RECOVERY_PK);
+        DepositDescriptor descriptor = DepositDescriptor.create(AlpenConstants.ALPEN_EE_ACCT_SERIAL, Utils.hexToBytes(SUBJECT));
+        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryPk, descriptor.encodeToBytes());
+
+        byte[] tag = Sps50Encoder.encodeTag(headerAux.buildAuxData());
+        assertEquals(6 + 32 + descriptor.encodeToBytes().length, tag.length);
+        assertArrayEquals(StrataBridgeConstants.MAGIC_BYTES, new byte[] {tag[0], tag[1], tag[2], tag[3]});
+        assertEquals(StrataBridgeConstants.BRIDGE_V1_SUBPROTOCOL_ID, tag[4]);
+        assertEquals(StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE, tag[5]);
+        assertEquals(ScriptOpCodes.OP_RETURN, Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData()).getChunks().get(0).getOpcode());
+    }
+}
