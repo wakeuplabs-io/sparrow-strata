@@ -1,0 +1,614 @@
+package com.sparrowwallet.sparrow.strata.deposit;
+
+import com.google.common.eventbus.Subscribe;
+import com.sparrowwallet.drongo.BitcoinUnit;
+import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
+import com.sparrowwallet.drongo.Network;
+import com.sparrowwallet.sparrow.*;
+import com.sparrowwallet.sparrow.control.*;
+import com.sparrowwallet.sparrow.event.*;
+import com.sparrowwallet.sparrow.glyphfont.FontAwesome5;
+import com.sparrowwallet.sparrow.io.Config;
+import com.sparrowwallet.sparrow.net.FeeRatesSource;
+import com.sparrowwallet.sparrow.net.MempoolRateSize;
+import com.sparrowwallet.sparrow.wallet.FeeRatesSelection;
+import com.sparrowwallet.sparrow.wallet.WalletFormController;
+import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.ObservableValue;
+import javafx.event.ActionEvent;
+import javafx.fxml.FXML;
+import javafx.fxml.Initializable;
+import javafx.scene.control.*;
+import javafx.util.StringConverter;
+import org.controlsfx.glyphfont.Glyph;
+import org.controlsfx.validation.ValidationResult;
+import org.controlsfx.validation.ValidationSupport;
+import org.controlsfx.validation.Validator;
+import org.controlsfx.validation.decoration.StyleClassValidationDecoration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tornadofx.control.Field;
+
+import java.net.URL;
+import java.text.DecimalFormat;
+import java.util.*;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static com.sparrowwallet.sparrow.AppServices.*;
+
+public class DepositController extends WalletFormController implements Initializable {
+    private static final Logger log = LoggerFactory.getLogger(DepositController.class);
+
+    @FXML
+    private TextField depositTo;
+
+    @FXML
+    private TextField label;
+
+    @FXML
+    private TextField amount;
+
+    @FXML
+    private ComboBox<BitcoinUnit> amountUnit;
+
+    @FXML
+    private FiatLabel fiatAmount;
+
+    @FXML
+    private ToggleButton maxButton;
+
+    @FXML
+    private Button scanQrButton;
+
+    @FXML
+    private ToggleGroup feeSelectionToggleGroup;
+
+    @FXML
+    private ToggleButton targetBlocksToggle;
+
+    @FXML
+    private ToggleButton mempoolSizeToggle;
+
+    @FXML
+    private ToggleButton recentBlocksToggle;
+
+    @FXML
+    private Field targetBlocksField;
+
+    @FXML
+    private Slider targetBlocks;
+
+    @FXML
+    private Field feeRangeField;
+
+    @FXML
+    private FeeRangeSlider feeRange;
+
+    @FXML
+    private CopyableLabel feeRate;
+
+    @FXML
+    private Label feeRatePriority;
+
+    @FXML
+    private Glyph feeRatePriorityGlyph;
+
+    @FXML
+    private Label cpfpFeeRate;
+
+    @FXML
+    private TextField fee;
+
+    @FXML
+    private ComboBox<BitcoinUnit> feeAmountUnit;
+
+    @FXML
+    private FiatLabel fiatFeeAmount;
+
+    @FXML
+    private BlockTargetFeeRatesChart blockTargetFeeRatesChart;
+
+    @FXML
+    private MempoolSizeFeeRatesChart mempoolSizeFeeRatesChart;
+
+    @FXML
+    private RecentBlocksView recentBlocksView;
+
+    @FXML
+    private ToggleGroup optimizationToggleGroup;
+
+    @FXML
+    private ToggleButton efficiencyToggle;
+
+    @FXML
+    private ToggleButton privacyToggle;
+
+    @FXML
+    private HelpLabel optimizationHelp;
+
+    @FXML
+    private Button confirmButton;
+
+    private ValidationSupport validationSupport;
+
+    private final SimpleBooleanProperty userFeeSet = new SimpleBooleanProperty(false);
+
+    private final ObjectProperty<FeeRatesSelection> feeRatesSelectionProperty = new SimpleObjectProperty<>(null);
+
+    private boolean updateDefaultFeeRate;
+
+    private final ChangeListener<String> feeListener = new ChangeListener<>() {
+        @Override
+        public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
+            userFeeSet.set(true);
+            if(newValue.isEmpty()) {
+                fiatFeeAmount.setText("");
+            } else {
+                setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), getFeeValueSats());
+            }
+            setTargetBlocks(getTargetBlocks());
+        }
+    };
+
+    private final ChangeListener<Number> targetBlocksListener = new ChangeListener<>() {
+        @Override
+        public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue) {
+            Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
+            Integer target = getTargetBlocks();
+
+            if(targetBlocksFeeRates != null) {
+                setFeeRate(targetBlocksFeeRates.get(target));
+                blockTargetFeeRatesChart.select(target);
+            } else {
+                feeRate.setText("Unknown");
+            }
+
+            targetBlocks.setTooltip(new Tooltip("Target inclusion within " + target + " blocks"));
+            userFeeSet.set(false);
+        }
+    };
+
+    private final ChangeListener<Number> feeRangeListener = new ChangeListener<>() {
+        @Override
+        public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue) {
+            setFeeRate(getFeeRangeRate());
+            userFeeSet.set(false);
+        }
+    };
+
+    @Override
+    public void initialize(URL location, ResourceBundle resources) {
+        EventManager.get().register(this);
+    }
+
+    @Override
+    public void initializeView() {
+        addValidation();
+        initializeAmountFields();
+        initializeFeeSection();
+        updateConfirmButton();
+    }
+
+    private void addValidation() {
+        validationSupport = new ValidationSupport();
+        validationSupport.setValidationDecorator(new StyleClassValidationDecoration());
+
+        validationSupport.registerValidator(depositTo, false, Validator.createEmptyValidator("Deposit address is required"));
+        validationSupport.registerValidator(label, false, Validator.createEmptyValidator("Label is required"));
+        validationSupport.registerValidator(amount, false, (Control control, String value) -> {
+            if(value == null || value.isEmpty()) {
+                return ValidationResult.fromError(control, "Amount is required");
+            }
+            try {
+                Long sats = getAmountValueSats();
+                if(sats == null || sats <= 0) {
+                    return ValidationResult.fromError(control, "Amount must be greater than zero");
+                }
+            } catch(NumberFormatException e) {
+                return ValidationResult.fromError(control, "Invalid amount");
+            }
+            return new ValidationResult();
+        });
+
+        validationSupport.validationResultProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
+        depositTo.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
+        label.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
+        amount.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
+    }
+
+    private void initializeAmountFields() {
+        amount.setTextFormatter(new CoinTextFormatter(Config.get().getUnitFormat()));
+        amountUnit.getSelectionModel().select(BitcoinUnit.BTC);
+        amountUnit.valueProperty().addListener((observable, oldValue, newValue) -> {
+            Long value = getAmountValueSats(oldValue);
+            if(value != null) {
+                setAmountValueSats(value);
+            }
+            updateConfirmButton();
+        });
+    }
+
+    private void initializeFeeSection() {
+        targetBlocksField.managedProperty().bind(targetBlocksField.visibleProperty());
+        targetBlocks.setMin(0);
+        targetBlocks.setMax(TARGET_BLOCKS_RANGE.size() - 1);
+        targetBlocks.setMajorTickUnit(1);
+        targetBlocks.setMinorTickCount(0);
+        targetBlocks.setLabelFormatter(new StringConverter<>() {
+            @Override
+            public String toString(Double object) {
+                String blocks = Integer.toString(TARGET_BLOCKS_RANGE.get(object.intValue()));
+                return (object.intValue() == TARGET_BLOCKS_RANGE.size() - 1) ? blocks + "+" : blocks;
+            }
+
+            @Override
+            public Double fromString(String string) {
+                return (double)TARGET_BLOCKS_RANGE.indexOf(Integer.valueOf(string.replace("+", "")));
+            }
+        });
+        targetBlocks.valueProperty().addListener(targetBlocksListener);
+
+        feeRangeField.managedProperty().bind(feeRangeField.visibleProperty());
+        feeRangeField.visibleProperty().bind(targetBlocksField.visibleProperty().not());
+        feeRange.valueProperty().addListener(feeRangeListener);
+
+        blockTargetFeeRatesChart.managedProperty().bind(blockTargetFeeRatesChart.visibleProperty());
+        blockTargetFeeRatesChart.visibleProperty().bind(Bindings.equal(feeRatesSelectionProperty, FeeRatesSelection.BLOCK_TARGET));
+        blockTargetFeeRatesChart.initialize();
+        Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
+        if(targetBlocksFeeRates != null) {
+            blockTargetFeeRatesChart.update(targetBlocksFeeRates);
+        } else {
+            feeRate.setText("Unknown");
+        }
+
+        mempoolSizeFeeRatesChart.managedProperty().bind(mempoolSizeFeeRatesChart.visibleProperty());
+        mempoolSizeFeeRatesChart.visibleProperty().bind(Bindings.equal(feeRatesSelectionProperty, FeeRatesSelection.MEMPOOL_SIZE));
+        mempoolSizeFeeRatesChart.initialize();
+        Map<Date, Set<MempoolRateSize>> mempoolHistogram = getMempoolHistogram();
+        if(mempoolHistogram != null) {
+            mempoolSizeFeeRatesChart.update(mempoolHistogram);
+        }
+
+        recentBlocksView.managedProperty().bind(recentBlocksView.visibleProperty());
+        recentBlocksView.visibleProperty().bind(Bindings.equal(feeRatesSelectionProperty, FeeRatesSelection.RECENT_BLOCKS));
+        List<BlockSummary> blockSummaries = AppServices.getBlockSummaries().values().stream().sorted().toList();
+        if(!blockSummaries.isEmpty()) {
+            recentBlocksView.update(blockSummaries, AppServices.getNextBlockMedianFeeRate());
+        }
+
+        feeRatesSelectionProperty.addListener((observable, oldValue, newValue) -> {
+            boolean isBlockTargetSelection = (newValue == FeeRatesSelection.BLOCK_TARGET);
+            boolean wasBlockTargetSelection = (oldValue == FeeRatesSelection.BLOCK_TARGET || oldValue == null);
+            targetBlocksField.setVisible(isBlockTargetSelection);
+            if(isBlockTargetSelection) {
+                setTargetBlocks(getTargetBlocks(getFeeRangeRate()));
+            } else if(wasBlockTargetSelection) {
+                setFeeRangeRate(getTargetBlocksFeeRates().get(getTargetBlocks()));
+            }
+        });
+
+        FeeRatesSelection feeRatesSelection = Config.get().getFeeRatesSelection();
+        feeRatesSelection = (feeRatesSelection == null ? FeeRatesSelection.RECENT_BLOCKS : feeRatesSelection);
+        cpfpFeeRate.managedProperty().bind(cpfpFeeRate.visibleProperty());
+        cpfpFeeRate.setVisible(false);
+        setDefaultFeeRate();
+        feeRatesSelectionProperty.set(feeRatesSelection);
+        feeSelectionToggleGroup.selectToggle(feeRatesSelection == FeeRatesSelection.BLOCK_TARGET ? targetBlocksToggle :
+                (feeRatesSelection == FeeRatesSelection.MEMPOOL_SIZE ? mempoolSizeToggle : recentBlocksToggle));
+        feeSelectionToggleGroup.selectedToggleProperty().addListener((observable, oldValue, newValue) -> {
+            if(newValue != null) {
+                FeeRatesSelection newFeeRatesSelection = (FeeRatesSelection)newValue.getUserData();
+                Config.get().setFeeRatesSelection(newFeeRatesSelection);
+                feeRatesSelectionProperty.set(newFeeRatesSelection);
+                EventManager.get().post(new FeeRatesSelectionChangedEvent(getWalletForm().getWallet(), newFeeRatesSelection));
+            }
+        });
+
+        fee.setTextFormatter(new CoinTextFormatter(Config.get().getUnitFormat()));
+        fee.textProperty().addListener(feeListener);
+
+        BitcoinUnit unit = getBitcoinUnit(Config.get().getBitcoinUnit());
+        feeAmountUnit.getSelectionModel().select(BitcoinUnit.BTC.equals(unit) ? 0 : 1);
+        feeAmountUnit.valueProperty().addListener((observable, oldValue, newValue) -> {
+            Long value = getFeeValueSats(oldValue);
+            if(value != null) {
+                setFeeValueSats(value);
+            }
+        });
+
+        fee.setText("0");
+    }
+
+    private void updateConfirmButton() {
+        boolean valid = validationSupport != null && !validationSupport.isInvalid()
+                && depositTo.getText() != null && !depositTo.getText().isBlank()
+                && label.getText() != null && !label.getText().isBlank()
+                && amount.getText() != null && !amount.getText().isBlank();
+        confirmButton.setDisable(!valid);
+    }
+
+    @FXML
+    public void scanQrAddress(ActionEvent event) {
+        QRScanDialog qrScanDialog = new QRScanDialog();
+        qrScanDialog.initOwner(scanQrButton.getScene().getWindow());
+        Optional<QRScanDialog.Result> optionalResult = qrScanDialog.showAndWait();
+        if(optionalResult.isPresent()) {
+            QRScanDialog.Result result = optionalResult.get();
+            if(result.payload != null) {
+                depositTo.setText(result.payload);
+            } else if(result.exception != null) {
+                log.error("Error scanning QR", result.exception);
+                AppServices.showErrorDialog("Error scanning QR", result.exception.getMessage());
+            }
+        }
+    }
+
+    @FXML
+    public void setMaxAmount(ActionEvent event) {
+        long balance = getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        if(balance > 0) {
+            setAmountValueSats(balance);
+            maxButton.setSelected(true);
+        }
+    }
+
+    @FXML
+    public void confirm(ActionEvent event) {
+        AppServices.showWarningDialog("Deposit mockup", "Deposit confirmation flow is not yet implemented.");
+    }
+
+    private BitcoinUnit getBitcoinUnit(BitcoinUnit bitcoinUnit) {
+        BitcoinUnit unit = bitcoinUnit;
+        if(unit == null || unit.equals(BitcoinUnit.AUTO)) {
+            unit = getWalletForm().getWallet().getAutoUnit();
+        }
+        return unit;
+    }
+
+    private Long getAmountValueSats() {
+        return getAmountValueSats(amountUnit.getSelectionModel().getSelectedItem());
+    }
+
+    private Long getAmountValueSats(BitcoinUnit bitcoinUnit) {
+        if(amount.getText() != null && !amount.getText().isEmpty()) {
+            UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
+            double fieldValue = Double.parseDouble(amount.getText().replaceAll(Pattern.quote(format.getGroupingSeparator()), "").replaceAll(",", "."));
+            return bitcoinUnit.getSatsValue(fieldValue);
+        }
+        return null;
+    }
+
+    private void setAmountValueSats(long amountValue) {
+        UnitFormat unitFormat = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
+        DecimalFormat df = new DecimalFormat("#.#", unitFormat.getDecimalFormatSymbols());
+        df.setMaximumFractionDigits(8);
+        amount.setText(df.format(amountUnit.getValue().getValue(amountValue)));
+        setFiatAmount(AppServices.getFiatCurrencyExchangeRate(), amountValue);
+        updateConfirmButton();
+    }
+
+    private void setFiatAmount(CurrencyRate currencyRate, Long value) {
+        if(value != null && value > 0) {
+            fiatAmount.set(currencyRate, value);
+        } else {
+            fiatAmount.setCurrency(null);
+            fiatAmount.setBtcRate(0.0);
+        }
+    }
+
+    private Long getFeeValueSats() {
+        return getFeeValueSats(feeAmountUnit.getSelectionModel().getSelectedItem());
+    }
+
+    private Long getFeeValueSats(BitcoinUnit bitcoinUnit) {
+        if(fee.getText() != null && !fee.getText().isEmpty()) {
+            UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
+            double fieldValue = Double.parseDouble(fee.getText().replaceAll(Pattern.quote(format.getGroupingSeparator()), "").replaceAll(",", "."));
+            return bitcoinUnit.getSatsValue(fieldValue);
+        }
+        return null;
+    }
+
+    private void setFeeValueSats(long feeValue) {
+        fee.textProperty().removeListener(feeListener);
+        UnitFormat unitFormat = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
+        DecimalFormat df = new DecimalFormat("#.#", unitFormat.getDecimalFormatSymbols());
+        df.setMaximumFractionDigits(8);
+        fee.setText(df.format(feeAmountUnit.getValue().getValue(feeValue)));
+        fee.textProperty().addListener(feeListener);
+        setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), feeValue);
+    }
+
+    private void setFiatFeeAmount(CurrencyRate currencyRate, Long value) {
+        if(value != null && value > 0) {
+            fiatFeeAmount.set(currencyRate, value);
+        } else {
+            fiatFeeAmount.setCurrency(null);
+            fiatFeeAmount.setBtcRate(0.0);
+        }
+    }
+
+    private void setDefaultFeeRate() {
+        int defaultTarget = TARGET_BLOCKS_RANGE.get((TARGET_BLOCKS_RANGE.size() / 2) - 1);
+        int index = TARGET_BLOCKS_RANGE.indexOf(defaultTarget);
+        Double defaultRate = getTargetBlocksFeeRates().get(defaultTarget);
+        targetBlocks.setValue(index);
+        blockTargetFeeRatesChart.select(defaultTarget);
+        recentBlocksView.updateFeeRate(defaultRate);
+        setFeeRangeRate(defaultRate);
+        setFeeRate(getFeeRangeRate());
+        if(Network.get().equals(Network.MAINNET) && defaultRate == getFallbackFeeRate()) {
+            updateDefaultFeeRate = true;
+        }
+    }
+
+    private Integer getTargetBlocks() {
+        int index = (int)targetBlocks.getValue();
+        return TARGET_BLOCKS_RANGE.get(index);
+    }
+
+    private Integer getTargetBlocks(double feeRateAmt) {
+        Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
+        int maxTargetBlocks = 1;
+        for(Integer blocks : targetBlocksFeeRates.keySet()) {
+            if(TARGET_BLOCKS_RANGE.contains(blocks)) {
+                maxTargetBlocks = Math.max(maxTargetBlocks, blocks);
+                Double candidate = targetBlocksFeeRates.get(blocks);
+                if(Math.round(feeRateAmt) >= Math.round(candidate)) {
+                    return blocks;
+                }
+            }
+        }
+        return maxTargetBlocks;
+    }
+
+    private void setTargetBlocks(Integer target) {
+        targetBlocks.valueProperty().removeListener(targetBlocksListener);
+        int index = TARGET_BLOCKS_RANGE.indexOf(target);
+        targetBlocks.setValue(index);
+        blockTargetFeeRatesChart.select(target);
+        targetBlocks.setTooltip(new Tooltip("Target inclusion within " + target + " blocks"));
+        targetBlocks.valueProperty().addListener(targetBlocksListener);
+    }
+
+    private Map<Integer, Double> getTargetBlocksFeeRates() {
+        Map<Integer, Double> retrievedFeeRates = AppServices.getTargetBlockFeeRates();
+        if(retrievedFeeRates == null) {
+            retrievedFeeRates = TARGET_BLOCKS_RANGE.stream().collect(Collectors.toMap(java.util.function.Function.identity(), v -> getFallbackFeeRate(),
+                    (u, v) -> { throw new IllegalStateException("Duplicate target blocks"); },
+                    LinkedHashMap::new));
+        }
+        return retrievedFeeRates;
+    }
+
+    private Double getFeeRangeRate() {
+        return feeRange.getFeeRate();
+    }
+
+    private void setFeeRangeRate(Double feeRateAmt) {
+        feeRange.valueProperty().removeListener(feeRangeListener);
+        feeRange.setFeeRate(feeRateAmt);
+        feeRange.valueProperty().addListener(feeRangeListener);
+    }
+
+    private Map<Date, Set<MempoolRateSize>> getMempoolHistogram() {
+        return AppServices.getMempoolHistogram();
+    }
+
+    private void setFeeRate(Double feeRateAmt) {
+        UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
+        feeRate.setText(format.getCurrencyFormat().format(feeRateAmt) + (cpfpFeeRate.isVisible() ? "" : " sats/vB"));
+        setFeeRatePriority(feeRateAmt);
+    }
+
+    private void setFeeRatePriority(Double feeRateAmt) {
+        Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
+        if(targetBlocksFeeRates.get(Integer.MAX_VALUE) != null) {
+            Double minFeeRate = targetBlocksFeeRates.get(Integer.MAX_VALUE);
+            if(minFeeRate > 1.0 && feeRateAmt < minFeeRate) {
+                feeRatePriority.setText("Below Minimum");
+                feeRatePriority.setTooltip(new Tooltip("Transactions at this fee rate are currently being purged from the default sized mempool"));
+                feeRatePriorityGlyph.setStyle("-fx-text-fill: #a0a1a7cc");
+                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.EXCLAMATION_CIRCLE);
+                return;
+            }
+        }
+
+        Integer blocks = getTargetBlocks(feeRateAmt);
+        if(blocks != null) {
+            if(blocks < FeeRatesSource.BLOCKS_IN_HALF_HOUR) {
+                feeRatePriority.setText("High Priority");
+                feeRatePriority.setTooltip(new Tooltip("Typically confirms within minutes"));
+                feeRatePriorityGlyph.setStyle("-fx-text-fill: #c8416499");
+                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.CIRCLE);
+            } else if(blocks < FeeRatesSource.BLOCKS_IN_HOUR) {
+                feeRatePriority.setText("Medium Priority");
+                feeRatePriority.setTooltip(new Tooltip("Typically confirms within an hour or two"));
+                feeRatePriorityGlyph.setStyle("-fx-text-fill: #fba71b99");
+                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.CIRCLE);
+            } else {
+                feeRatePriority.setText("Low Priority");
+                feeRatePriority.setTooltip(new Tooltip("Typically confirms in a day or longer"));
+                feeRatePriorityGlyph.setStyle("-fx-text-fill: #41a9c999");
+                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.CIRCLE);
+            }
+        }
+    }
+
+    @Subscribe
+    public void feeRatesUpdated(FeeRatesUpdatedEvent event) {
+        blockTargetFeeRatesChart.update(event.getTargetBlockFeeRates());
+        blockTargetFeeRatesChart.select(getTargetBlocks());
+        if(targetBlocksField.isVisible()) {
+            setFeeRate(event.getTargetBlockFeeRates().get(getTargetBlocks()));
+        } else {
+            setFeeRatePriority(getFeeRangeRate());
+        }
+        feeRange.updateTrackHighlight();
+
+        if(event.getNextBlockMedianFeeRate() != null) {
+            recentBlocksView.updateFeeRate(event.getNextBlockMedianFeeRate());
+        } else {
+            recentBlocksView.updateFeeRate(event.getTargetBlockFeeRates());
+        }
+
+        if(updateDefaultFeeRate) {
+            if(getFeeRangeRate() != null && Long.valueOf((long)getFallbackFeeRate()).equals(getFeeRangeRate().longValue())) {
+                setDefaultFeeRate();
+            }
+            updateDefaultFeeRate = false;
+        }
+    }
+
+    @Subscribe
+    public void mempoolRateSizesUpdated(MempoolRateSizesUpdatedEvent event) {
+        mempoolSizeFeeRatesChart.update(getMempoolHistogram());
+    }
+
+    @Subscribe
+    public void blockSummary(BlockSummaryEvent event) {
+        Platform.runLater(() -> recentBlocksView.update(AppServices.getBlockSummaries().values().stream().sorted().toList(), AppServices.getNextBlockMedianFeeRate()));
+    }
+
+    @Subscribe
+    public void bitcoinUnitChanged(BitcoinUnitChangedEvent event) {
+        BitcoinUnit unit = getBitcoinUnit(event.getBitcoinUnit());
+        feeAmountUnit.getSelectionModel().select(BitcoinUnit.BTC.equals(unit) ? 0 : 1);
+    }
+
+    @Subscribe
+    public void unitFormatChanged(UnitFormatChangedEvent event) {
+        if(amount.getTextFormatter() instanceof CoinTextFormatter coinTextFormatter && coinTextFormatter.getUnitFormat() != event.getUnitFormat()) {
+            UnitFormat format = coinTextFormatter.getUnitFormat() == null ? UnitFormat.DOT : coinTextFormatter.getUnitFormat();
+            Long value = getAmountValueSats(format, amountUnit.getSelectionModel().getSelectedItem());
+            amount.setTextFormatter(new CoinTextFormatter(event.getUnitFormat()));
+            if(value != null) {
+                setAmountValueSats(value);
+            }
+        }
+        fiatAmount.refresh(event.getUnitFormat());
+        fiatFeeAmount.refresh(event.getUnitFormat());
+    }
+
+    @Subscribe
+    public void exchangeRatesUpdated(ExchangeRatesUpdatedEvent event) {
+        setFiatAmount(event.getCurrencyRate(), getAmountValueSats());
+        setFiatFeeAmount(event.getCurrencyRate(), getFeeValueSats());
+    }
+
+    private Long getAmountValueSats(UnitFormat unitFormat, BitcoinUnit bitcoinUnit) {
+        if(amount.getText() != null && !amount.getText().isEmpty()) {
+            UnitFormat format = unitFormat == null ? UnitFormat.DOT : unitFormat;
+            double fieldValue = Double.parseDouble(amount.getText().replaceAll(Pattern.quote(format.getGroupingSeparator()), "").replaceAll(",", "."));
+            return bitcoinUnit.getSatsValue(fieldValue);
+        }
+        return null;
+    }
+}

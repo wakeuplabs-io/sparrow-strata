@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import com.sparrowwallet.drongo.BitcoinUnit?>
+<?import com.sparrowwallet.sparrow.control.BlockTargetFeeRatesChart?>
+<?import com.sparrowwallet.sparrow.control.CopyableLabel?>
+<?import com.sparrowwallet.sparrow.control.FeeRangeSlider?>
+<?import com.sparrowwallet.sparrow.control.FiatLabel?>
+<?import com.sparrowwallet.sparrow.control.HelpLabel?>
+<?import com.sparrowwallet.sparrow.control.MempoolSizeFeeRatesChart?>
+<?import com.sparrowwallet.sparrow.control.RecentBlocksView?>
+<?import com.sparrowwallet.sparrow.wallet.FeeRatesSelection?>
+<?import com.sparrowwallet.sparrow.wallet.OptimizationStrategy?>
+<?import javafx.collections.FXCollections?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.chart.CategoryAxis?>
+<?import javafx.scene.chart.NumberAxis?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import org.controlsfx.control.SegmentedButton?>
+<?import org.controlsfx.glyphfont.Glyph?>
+<?import tornadofx.control.Field?>
+<?import tornadofx.control.Fieldset?>
+<?import tornadofx.control.Form?>
+
+<BorderPane stylesheets="@../wallet/send.css, @../wallet/wallet.css, @../script.css, @../general.css" styleClass="wallet-pane" xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.sparrowwallet.sparrow.strata.deposit.DepositController">
+    <center>
+        <VBox>
+            <GridPane styleClass="send-form" hgap="10.0" vgap="10.0">
+                <padding>
+                    <Insets left="25.0" right="25.0" top="25.0" />
+                </padding>
+                <columnConstraints>
+                    <ColumnConstraints prefWidth="410" hgrow="SOMETIMES" />
+                    <ColumnConstraints prefWidth="200" />
+                    <ColumnConstraints prefWidth="140" />
+                </columnConstraints>
+                <rowConstraints>
+                    <RowConstraints />
+                </rowConstraints>
+                <Form GridPane.columnIndex="0" GridPane.rowIndex="0" GridPane.columnSpan="2">
+                    <Fieldset inputGrow="ALWAYS">
+                        <Field text="Deposit to:">
+                            <TextField fx:id="depositTo" styleClass="address-text-field">
+                                <tooltip>
+                                    <Tooltip text="Strata deposit address on Alpen"/>
+                                </tooltip>
+                            </TextField>
+                        </Field>
+                        <Field text="Label:">
+                            <TextField fx:id="label">
+                                <tooltip>
+                                    <Tooltip text="Required to label the transaction (privately in this wallet)"/>
+                                </tooltip>
+                            </TextField>
+                        </Field>
+                        <Field text="Amount:">
+                            <TextField fx:id="amount" styleClass="amount-field" />
+                            <ComboBox fx:id="amountUnit" styleClass="amount-unit">
+                                <value>
+                                    <BitcoinUnit fx:constant="BTC" />
+                                </value>
+                                <items>
+                                    <FXCollections fx:factory="observableArrayList">
+                                        <BitcoinUnit fx:constant="BTC" />
+                                        <BitcoinUnit fx:constant="SATOSHIS" />
+                                    </FXCollections>
+                                </items>
+                            </ComboBox>
+                            <Label style="-fx-pref-width: 15" />
+                            <FiatLabel fx:id="fiatAmount" />
+                            <Region style="-fx-pref-width: 5" />
+                            <ToggleButton fx:id="maxButton" text="Max" onAction="#setMaxAmount" />
+                        </Field>
+                    </Fieldset>
+                </Form>
+                <Form GridPane.columnIndex="2" GridPane.rowIndex="0">
+                    <Fieldset inputGrow="ALWAYS" style="-fx-padding: 5 0 0 0">
+                        <HBox>
+                            <Button fx:id="scanQrButton" onAction="#scanQrAddress" prefHeight="30">
+                                <graphic>
+                                    <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="12" icon="CAMERA" />
+                                </graphic>
+                            </Button>
+                        </HBox>
+                    </Fieldset>
+                </Form>
+                <Form styleClass="title-form" GridPane.columnIndex="0" GridPane.rowIndex="1">
+                    <Fieldset inputGrow="ALWAYS" text="Mining fee"/>
+                </Form>
+                <HBox GridPane.columnIndex="1" GridPane.rowIndex="1" GridPane.columnSpan="2" GridPane.halignment="RIGHT" alignment="CENTER_RIGHT">
+                    <padding>
+                        <Insets right="10.0" />
+                    </padding>
+                    <SegmentedButton>
+                        <toggleGroup>
+                            <ToggleGroup fx:id="feeSelectionToggleGroup" />
+                        </toggleGroup>
+                        <buttons>
+                            <ToggleButton fx:id="targetBlocksToggle" text="Target Blocks" toggleGroup="$feeSelectionToggleGroup">
+                                <tooltip>
+                                    <Tooltip text="Determine fee via estimated number of blocks"/>
+                                </tooltip>
+                                <userData>
+                                    <FeeRatesSelection fx:constant="BLOCK_TARGET"/>
+                                </userData>
+                            </ToggleButton>
+                            <ToggleButton fx:id="mempoolSizeToggle" text="Mempool Size" toggleGroup="$feeSelectionToggleGroup">
+                                <tooltip>
+                                    <Tooltip text="Determine fee via current mempool size"/>
+                                </tooltip>
+                                <userData>
+                                    <FeeRatesSelection fx:constant="MEMPOOL_SIZE"/>
+                                </userData>
+                            </ToggleButton>
+                            <ToggleButton fx:id="recentBlocksToggle" text="Recent Blocks" toggleGroup="$feeSelectionToggleGroup">
+                                <tooltip>
+                                    <Tooltip text="Show recent and upcoming blocks"/>
+                                </tooltip>
+                                <userData>
+                                    <FeeRatesSelection fx:constant="RECENT_BLOCKS"/>
+                                </userData>
+                            </ToggleButton>
+                        </buttons>
+                    </SegmentedButton>
+                </HBox>
+                <Form GridPane.columnIndex="0" GridPane.rowIndex="2">
+                    <Fieldset inputGrow="SOMETIMES">
+                        <Field fx:id="targetBlocksField" text="Blocks:">
+                            <Slider fx:id="targetBlocks" snapToTicks="true" showTickLabels="true" showTickMarks="true" />
+                        </Field>
+                        <Field fx:id="feeRangeField" text="Range:">
+                            <FeeRangeSlider fx:id="feeRange" />
+                        </Field>
+                        <Field fx:id="feeRateField" text="Rate:">
+                            <CopyableLabel fx:id="feeRate" />
+                            <Label fx:id="cpfpFeeRate" text="CPFP">
+                                <graphic>
+                                    <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="12" icon="SIGN_OUT_ALT" />
+                                </graphic>
+                                <padding>
+                                    <Insets left="4"/>
+                                </padding>
+                            </Label>
+                            <Region HBox.hgrow="ALWAYS" />
+                            <Label fx:id="feeRatePriority" graphicTextGap="5" contentDisplay="RIGHT">
+                                <graphic>
+                                    <Glyph fx:id="feeRatePriorityGlyph" fontFamily="Font Awesome 5 Free Solid" fontSize="12" icon="CIRCLE" />
+                                </graphic>
+                            </Label>
+                        </Field>
+                        <Field text="Fee:">
+                            <TextField fx:id="fee" styleClass="amount-field"/>
+                            <ComboBox fx:id="feeAmountUnit" styleClass="amount-unit">
+                                <items>
+                                    <FXCollections fx:factory="observableArrayList">
+                                        <BitcoinUnit fx:constant="BTC" />
+                                        <BitcoinUnit fx:constant="SATOSHIS" />
+                                    </FXCollections>
+                                </items>
+                            </ComboBox>
+                            <Label style="-fx-pref-width: 15" />
+                            <FiatLabel fx:id="fiatFeeAmount" />
+                        </Field>
+                    </Fieldset>
+                </Form>
+                <AnchorPane GridPane.columnIndex="1" GridPane.rowIndex="2" GridPane.columnSpan="2" minWidth="355" prefWidth="355" maxWidth="355" minHeight="145" prefHeight="145" maxHeight="145">
+                    <BlockTargetFeeRatesChart fx:id="blockTargetFeeRatesChart" styleClass="feeRatesChart" legendVisible="false" AnchorPane.topAnchor="10" AnchorPane.leftAnchor="20" animated="false" minWidth="335" prefWidth="335" maxWidth="335" minHeight="135" prefHeight="135" maxHeight="135">
+                        <xAxis>
+                            <CategoryAxis side="BOTTOM" />
+                        </xAxis>
+                        <yAxis>
+                            <NumberAxis side="LEFT" forceZeroInRange="false" />
+                        </yAxis>
+                    </BlockTargetFeeRatesChart>
+                    <MempoolSizeFeeRatesChart fx:id="mempoolSizeFeeRatesChart" styleClass="feeRatesChart" legendVisible="false" AnchorPane.topAnchor="10" AnchorPane.leftAnchor="20" animated="false" minWidth="335" prefWidth="335" maxWidth="335" minHeight="135" prefHeight="135" maxHeight="135">
+                        <xAxis>
+                            <CategoryAxis side="BOTTOM" />
+                        </xAxis>
+                        <yAxis>
+                            <NumberAxis side="LEFT" />
+                        </yAxis>
+                    </MempoolSizeFeeRatesChart>
+                    <RecentBlocksView fx:id="recentBlocksView" styleClass="feeRatesChart" AnchorPane.topAnchor="10" AnchorPane.leftAnchor="20" translateX="54" translateY="30" minWidth="335" prefWidth="335" maxWidth="335" minHeight="135" prefHeight="135" maxHeight="135"/>
+                </AnchorPane>
+            </GridPane>
+            <StackPane VBox.vgrow="SOMETIMES" />
+        </VBox>
+    </center>
+    <bottom>
+        <AnchorPane>
+            <padding>
+                <Insets left="25.0" right="25.0" bottom="25.0" />
+            </padding>
+            <HBox AnchorPane.leftAnchor="5" alignment="CENTER_LEFT">
+                <Label text="Optimize:" styleClass="buttonRowLabel" />
+                <SegmentedButton>
+                    <toggleGroup>
+                        <ToggleGroup fx:id="optimizationToggleGroup" />
+                    </toggleGroup>
+                    <buttons>
+                        <ToggleButton fx:id="efficiencyToggle" text="Efficiency" selected="true" toggleGroup="$optimizationToggleGroup">
+                            <tooltip>
+                                <Tooltip text="Smallest transaction size for lowest fees"/>
+                            </tooltip>
+                            <userData>
+                                <OptimizationStrategy fx:constant="EFFICIENCY"/>
+                            </userData>
+                        </ToggleButton>
+                        <ToggleButton fx:id="privacyToggle" text="Privacy" toggleGroup="$optimizationToggleGroup">
+                            <tooltip>
+                                <Tooltip text="Higher entropy transactions that reduce probabilities in blockchain analysis"/>
+                            </tooltip>
+                            <userData>
+                                <OptimizationStrategy fx:constant="PRIVACY"/>
+                            </userData>
+                        </ToggleButton>
+                    </buttons>
+                </SegmentedButton>
+                <HelpLabel fx:id="optimizationHelp" helpText="Determines whether to optimize the transaction for low fees or greater privacy" />
+            </HBox>
+            <HBox AnchorPane.rightAnchor="10">
+                <Button fx:id="confirmButton" text="Confirm" defaultButton="true" disable="true" contentDisplay="RIGHT" graphicTextGap="5" onAction="#confirm">
+                    <graphic>
+                        <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="12" icon="ANGLE_DOUBLE_RIGHT" />
+                    </graphic>
+                </Button>
+            </HBox>
+        </AnchorPane>
+    </bottom>
+</BorderPane>
