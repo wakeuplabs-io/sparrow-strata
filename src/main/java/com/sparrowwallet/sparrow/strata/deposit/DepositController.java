@@ -435,7 +435,7 @@ public class DepositController extends WalletFormController implements Initializ
             if(!currentService.isIgnoreResult()) {
                 WalletTransaction walletTransaction = currentService.getValue();
                 if(walletTransaction != null) {
-                    setFeeValueSats(walletTransaction.getFee());
+                    setFeeValueSats(getTotalMiningFeeSats(walletTransaction.getFee(), feeRate));
                 }
             }
         });
@@ -512,13 +512,18 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         try {
-            Double feeRate = getUserFeeRate();
+            Double feeRate = getFeeRate();
             if(feeRate == null) {
                 AppServices.showErrorDialog("Unknown fee rate", "Fee rates are not available. Check your connection and try again.");
                 return;
             }
 
-            Long userFee = userFeeSet.get() ? getFeeValueSats() : null;
+            Long userFee = userFeeSet.get() ? getDepositRequestFeeSats(feeRate) : null;
+            if(userFeeSet.get() && userFee == null) {
+                AppServices.showErrorDialog("Invalid fee", "Mining fee must cover the deposit transaction fee.");
+                return;
+            }
+
             double minimumFeeRate = getMinimumFeeRate();
             Wallet wallet = getWalletForm().getWallet();
             DepositRequestService service = new DepositRequestService(
@@ -526,7 +531,7 @@ public class DepositController extends WalletFormController implements Initializ
                     descriptor,
                     amountSats,
                     label.getText(),
-                    feeRate,
+                    getUserFeeRate(),
                     minimumFeeRate,
                     AppServices.getMinimumRelayFeeRate(),
                     userFee,
@@ -557,6 +562,26 @@ public class DepositController extends WalletFormController implements Initializ
         nodes.addAll(walletTransaction.getChangeMap().keySet());
         nodes.addAll(walletTransaction.getWalletNodePayments().stream().map(WalletNodePayment::getWalletNode).collect(Collectors.toList()));
         getWalletForm().addWalletTransactionNodes(nodes);
+    }
+
+    private long getDepFeeSats(double feeRate) {
+        return DepositTransactionFeeEstimator.calculateDepFee(feeRate);
+    }
+
+    private long getTotalMiningFeeSats(long depositRequestFeeSats, double feeRate) {
+        return depositRequestFeeSats + getDepFeeSats(feeRate);
+    }
+
+    private Long getDepositRequestFeeSats(double feeRate) {
+        Long totalFee = getFeeValueSats();
+        if(totalFee == null) {
+            return null;
+        }
+        long depFee = getDepFeeSats(feeRate);
+        if(totalFee < depFee) {
+            return null;
+        }
+        return totalFee - depFee;
     }
 
     private Double getUserFeeRate() {

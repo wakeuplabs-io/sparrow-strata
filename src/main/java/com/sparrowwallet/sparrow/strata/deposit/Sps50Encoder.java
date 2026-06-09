@@ -15,11 +15,19 @@ public final class Sps50Encoder {
     }
 
     public static Script encodeOpReturnScript(byte[] auxData) {
-        byte[] tag = encodeTag(auxData);
+        return encodeOpReturnScript(StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE, auxData);
+    }
+
+    public static Script encodeOpReturnScript(int txType, byte[] auxData) {
+        byte[] tag = encodeTag(txType, auxData);
         return new Script(List.of(ScriptChunk.fromOpcode(ScriptOpCodes.OP_RETURN), ScriptChunk.fromData(tag)));
     }
 
     public static byte[] encodeTag(byte[] auxData) {
+        return encodeTag(StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE, auxData);
+    }
+
+    public static byte[] encodeTag(int txType, byte[] auxData) {
         if(auxData == null || auxData.length > MAX_AUX_LEN) {
             throw new DepositRequestException("SPS-50 auxiliary data exceeds maximum length of " + MAX_AUX_LEN + " bytes");
         }
@@ -27,7 +35,7 @@ public final class Sps50Encoder {
         byte[] tag = new byte[MIN_TAG_LEN + auxData.length];
         System.arraycopy(StrataBridgeConstants.MAGIC_BYTES, 0, tag, 0, StrataBridgeConstants.MAGIC_BYTES.length);
         tag[4] = (byte)StrataBridgeConstants.BRIDGE_V1_SUBPROTOCOL_ID;
-        tag[5] = (byte)StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE;
+        tag[5] = (byte)txType;
         System.arraycopy(auxData, 0, tag, 6, auxData.length);
         if(tag.length > MAX_OP_RETURN_LEN) {
             throw new DepositRequestException("SPS-50 tag exceeds maximum OP_RETURN length");

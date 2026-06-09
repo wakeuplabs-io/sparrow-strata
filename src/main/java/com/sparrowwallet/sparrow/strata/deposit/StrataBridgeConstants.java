@@ -9,6 +9,7 @@ public final class StrataBridgeConstants {
     public static final byte[] MAGIC_BYTES = "ALPN".getBytes(StandardCharsets.US_ASCII);
     public static final int BRIDGE_V1_SUBPROTOCOL_ID = 2;
     public static final int DEPOSIT_REQUEST_TX_TYPE = 0;
+    public static final int DEPOSIT_TX_TYPE = 1;
     public static final int RECOVER_DELAY = 1008;
     public static final int MAX_DRT_DESTINATION_BYTES = 42;
     public static final long MAX_DEPOSIT_SATS = 100L * 100_000_000L;
