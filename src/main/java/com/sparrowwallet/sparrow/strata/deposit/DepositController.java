@@ -19,6 +19,7 @@ import com.sparrowwallet.sparrow.glyphfont.FontAwesome5;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.net.FeeRatesSource;
 import com.sparrowwallet.sparrow.net.MempoolRateSize;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
 import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
@@ -51,6 +52,7 @@ import tornadofx.control.Field;
 import java.net.URL;
 import java.text.DecimalFormat;
 import java.util.*;
+import java.util.OptionalLong;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -212,6 +214,7 @@ public class DepositController extends WalletFormController implements Initializ
         addValidation();
         initializeAmountFields();
         initializeFeeSection();
+        StrataBridgeParametersService.getInstance().refresh();
         updateConfirmButton();
         updateFee();
     }
@@ -225,20 +228,7 @@ public class DepositController extends WalletFormController implements Initializ
                 (Control control, String value) -> validateDepositAddress(control, value)
         ));
         validationSupport.registerValidator(label, false, Validator.createEmptyValidator("Label is required"));
-        validationSupport.registerValidator(amount, false, (Control control, String value) -> {
-            if(value == null || value.isEmpty()) {
-                return ValidationResult.fromError(control, "Amount is required");
-            }
-            try {
-                Long sats = getAmountValueSats();
-                if(sats == null || sats <= 0) {
-                    return ValidationResult.fromError(control, "Amount must be greater than zero");
-                }
-            } catch(NumberFormatException e) {
-                return ValidationResult.fromError(control, "Invalid amount");
-            }
-            return new ValidationResult();
-        });
+        validationSupport.registerValidator(amount, false, (Control control, String value) -> validateDepositAmount(control, value));
 
         validationSupport.validationResultProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
         depositTo.textProperty().addListener((observable, oldValue, newValue) -> {
@@ -250,6 +240,28 @@ public class DepositController extends WalletFormController implements Initializ
             updateConfirmButton();
             updateFee();
         });
+    }
+
+    private ValidationResult validateDepositAmount(Control control, String value) {
+        if(value == null || value.isEmpty()) {
+            return ValidationResult.fromError(control, "Amount is required");
+        }
+        try {
+            Long sats = getAmountValueSats();
+            if(sats == null) {
+                return ValidationResult.fromError(control, "Invalid amount");
+            }
+
+            OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
+            if(depositUtxoAmountSats.isEmpty()) {
+                return ValidationResult.fromError(control, "Unable to fetch deposit denomination from Strata node");
+            }
+
+            Optional<String> error = DepositAmountValidator.validate(sats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+            return error.map(message -> ValidationResult.fromError(control, message)).orElseGet(ValidationResult::new);
+        } catch(NumberFormatException e) {
+            return ValidationResult.fromError(control, "Invalid amount");
+        }
     }
 
     private ValidationResult validateDepositAddress(Control control, String value) {
@@ -469,9 +481,13 @@ public class DepositController extends WalletFormController implements Initializ
     @FXML
     public void setMaxAmount(ActionEvent event) {
         long balance = getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
-        if(balance > 0) {
-            setAmountValueSats(balance);
-            maxButton.setSelected(true);
+        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
+        if(balance > 0 && depositUtxoAmountSats.isPresent()) {
+            long maxAmount = DepositAmountValidator.largestValidAmount(balance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+            if(maxAmount > 0) {
+                setAmountValueSats(maxAmount);
+                maxButton.setSelected(true);
+            }
         }
     }
 
@@ -484,8 +500,14 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         Long amountSats = getAmountValueSats();
-        if(amountSats == null || amountSats <= 0) {
+        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
+        if(amountSats == null || amountSats <= 0 || depositUtxoAmountSats.isEmpty()) {
             AppServices.showErrorDialog("Invalid amount", "Enter a valid deposit amount.");
+            return;
+        }
+        Optional<String> amountError = DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        if(amountError.isPresent()) {
+            AppServices.showErrorDialog("Invalid amount", amountError.get());
             return;
         }
 
@@ -791,6 +813,21 @@ public class DepositController extends WalletFormController implements Initializ
         }
         fiatAmount.refresh(event.getUnitFormat());
         fiatFeeAmount.refresh(event.getUnitFormat());
+    }
+
+    @Subscribe
+    public void strataBridgeParametersUpdated(StrataBridgeParametersUpdatedEvent event) {
+        Platform.runLater(() -> {
+            revalidateAmountField();
+            updateConfirmButton();
+            updateFee();
+        });
+    }
+
+    private void revalidateAmountField() {
+        String current = amount.getText();
+        amount.setText(current == null ? "" : current + " ");
+        amount.setText(current == null ? "" : current);
     }
 
     @Subscribe
