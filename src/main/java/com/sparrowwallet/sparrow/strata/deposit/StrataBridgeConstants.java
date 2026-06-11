@@ -14,7 +14,8 @@ public final class StrataBridgeConstants {
     public static final int MAX_DRT_DESTINATION_BYTES = 42;
     public static final long MAX_DEPOSIT_SATS = 100L * 100_000_000L;
 
-    private static final String TESTNET_STRATA_RPC_URL = "https://rpc.testnet.alpenlabs.io";
+    public static final String MAINNET_STRATA_RPC_URL = "https://rpc.alpenlabs.io";
+    public static final String TESTNET_STRATA_RPC_URL = "https://rpc.testnet.alpenlabs.io";
     private static final String TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX = "89f96f834e39766f97e245d70b27236681f741ae51c117df19761af7cb2f657e";
 
     private StrataBridgeConstants() {
@@ -22,9 +23,12 @@ public final class StrataBridgeConstants {
 
     public static String getStrataRpcUrl(Network network) {
         if(network == Network.MAINNET) {
-            return null;
+            return MAINNET_STRATA_RPC_URL;
         }
-        return TESTNET_STRATA_RPC_URL;
+        if(network == Network.TESTNET) {
+            return TESTNET_STRATA_RPC_URL;
+        }
+        return null;
     }
 
     public static byte[] getBridgeOperatorPubkey(Network network) {

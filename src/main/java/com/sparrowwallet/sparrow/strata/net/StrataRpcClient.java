@@ -8,6 +8,7 @@ import com.sparrowwallet.sparrow.net.HttpClientService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,18 +44,7 @@ public class StrataRpcClient {
     private OptionalLong getDepositUtxoAmountFromRollupParams() {
         try {
             JsonObject result = call(GET_ROLLUP_PARAMS_METHOD, List.of());
-            if(result == null) {
-                return OptionalLong.empty();
-            }
-            if(result.has("deposit_amount")) {
-                return parseAmountField(result.get("deposit_amount"));
-            }
-            if(result.has("rollup") && result.get("rollup").isJsonObject()) {
-                JsonObject rollup = result.getAsJsonObject("rollup");
-                if(rollup.has("deposit_amount")) {
-                    return parseAmountField(rollup.get("deposit_amount"));
-                }
-            }
+            return StrataDepositDenominationParser.parseDepositAmountFromRollupParams(result);
         } catch(StrataRpcException e) {
             if(e.isMethodNotFound()) {
                 if(log.isDebugEnabled()) {
@@ -78,7 +68,7 @@ public class StrataRpcClient {
                 return OptionalLong.empty();
             }
 
-            long gcd = 0;
+            List<Long> amounts = new ArrayList<>();
             int sampled = 0;
             for(JsonElement depositIdElement : depositsElement.getAsJsonArray()) {
                 if(sampled >= DEPOSIT_SAMPLE_SIZE) {
@@ -89,15 +79,15 @@ public class StrataRpcClient {
                 if(deposit == null || !deposit.has("amt")) {
                     continue;
                 }
-                OptionalLong amount = parseAmountField(deposit.get("amt"));
+                OptionalLong amount = StrataDepositDenominationParser.parseAmountField(deposit.get("amt"));
                 if(amount.isEmpty() || amount.getAsLong() <= 0) {
                     continue;
                 }
-                gcd = gcd == 0 ? amount.getAsLong() : gcd(gcd, amount.getAsLong());
+                amounts.add(amount.getAsLong());
                 sampled++;
             }
 
-            return gcd > 0 ? OptionalLong.of(gcd) : OptionalLong.empty();
+            return StrataDepositDenominationParser.inferDepositDenomination(amounts);
         } catch(Exception e) {
             if(log.isDebugEnabled()) {
                 log.debug("Failed to infer deposit denomination from {}", rpcUrl, e);
@@ -139,34 +129,6 @@ public class StrataRpcClient {
             return null;
         }
         return JsonParser.parseString(GSON.toJson(result));
-    }
-
-    private static OptionalLong parseAmountField(JsonElement amountElement) {
-        if(amountElement == null || amountElement.isJsonNull()) {
-            return OptionalLong.empty();
-        }
-        if(amountElement.isJsonPrimitive()) {
-            if(amountElement.getAsJsonPrimitive().isNumber()) {
-                return OptionalLong.of(amountElement.getAsLong());
-            }
-            if(amountElement.getAsJsonPrimitive().isString()) {
-                try {
-                    return OptionalLong.of(Long.parseLong(amountElement.getAsString()));
-                } catch(NumberFormatException e) {
-                    return OptionalLong.empty();
-                }
-            }
-        }
-        return OptionalLong.empty();
-    }
-
-    private static long gcd(long a, long b) {
-        while(b != 0) {
-            long remainder = a % b;
-            a = b;
-            b = remainder;
-        }
-        return a;
     }
 
     static final class StrataRpcException extends Exception {

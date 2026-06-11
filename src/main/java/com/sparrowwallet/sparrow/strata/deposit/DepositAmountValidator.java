@@ -16,7 +16,7 @@ public final class DepositAmountValidator {
             return Optional.of("Amount must be greater than zero");
         }
         if(depositUtxoAmountSats <= 0) {
-            return Optional.empty();
+            return Optional.of("Unable to fetch deposit denomination from Strata node");
         }
         if(amountSats > maxDepositSats || amountSats % depositUtxoAmountSats != 0) {
             return Optional.of(formatInvalidAmountMessage(depositUtxoAmountSats, maxDepositSats));

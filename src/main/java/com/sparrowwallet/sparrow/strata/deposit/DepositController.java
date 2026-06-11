@@ -60,6 +60,7 @@ import static com.sparrowwallet.sparrow.AppServices.*;
 
 public class DepositController extends WalletFormController implements Initializable {
     private static final Logger log = LoggerFactory.getLogger(DepositController.class);
+    private static final long ESTIMATED_DRT_OUTPUT_VBYTES = 120;
 
     @FXML
     private TextField depositTo;
@@ -247,21 +248,22 @@ public class DepositController extends WalletFormController implements Initializ
             return ValidationResult.fromError(control, "Amount is required");
         }
         try {
-            Long sats = getAmountValueSats();
-            if(sats == null) {
-                return ValidationResult.fromError(control, "Invalid amount");
-            }
-
-            OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
-            if(depositUtxoAmountSats.isEmpty()) {
-                return ValidationResult.fromError(control, "Unable to fetch deposit denomination from Strata node");
-            }
-
-            Optional<String> error = DepositAmountValidator.validate(sats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+            Optional<String> error = getDepositAmountValidationError(getAmountValueSats());
             return error.map(message -> ValidationResult.fromError(control, message)).orElseGet(ValidationResult::new);
         } catch(NumberFormatException e) {
             return ValidationResult.fromError(control, "Invalid amount");
         }
+    }
+
+    private Optional<String> getDepositAmountValidationError(Long amountSats) {
+        if(amountSats == null) {
+            return Optional.of("Invalid amount");
+        }
+        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
+        if(depositUtxoAmountSats.isEmpty()) {
+            return Optional.of("Unable to fetch deposit denomination from Strata node");
+        }
+        return DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
     }
 
     private ValidationResult validateDepositAddress(Control control, String value) {
@@ -482,13 +484,36 @@ public class DepositController extends WalletFormController implements Initializ
     public void setMaxAmount(ActionEvent event) {
         long balance = getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
         OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
-        if(balance > 0 && depositUtxoAmountSats.isPresent()) {
-            long maxAmount = DepositAmountValidator.largestValidAmount(balance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
-            if(maxAmount > 0) {
-                setAmountValueSats(maxAmount);
-                maxButton.setSelected(true);
-            }
+        if(balance <= 0 || depositUtxoAmountSats.isEmpty()) {
+            return;
         }
+
+        Double feeRate = getFeeRate();
+        long spendableBalance = balance;
+        if(feeRate != null) {
+            long reservedForFees = estimateReservedSatsForDepositFees(feeRate);
+            spendableBalance = Math.max(0, balance - reservedForFees);
+        }
+
+        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        if(maxAmount > 0) {
+            setAmountValueSats(maxAmount);
+            maxButton.setSelected(true);
+        }
+    }
+
+    private long estimateReservedSatsForDepositFees(double feeRate) {
+        Long uiFee = getFeeValueSats();
+        if(uiFee != null && uiFee > 0) {
+            return uiFee;
+        }
+
+        Wallet wallet = getWalletForm().getWallet();
+        long depFee = getDepFeeSats(feeRate);
+        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * feeRate);
+        long outputFee = (long)Math.ceil(ESTIMATED_DRT_OUTPUT_VBYTES * feeRate);
+        long changeCost = wallet.getCostOfChange(feeRate, getMinimumFeeRate());
+        return depFee + inputFee + outputFee + changeCost;
     }
 
     @FXML
@@ -500,12 +525,7 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         Long amountSats = getAmountValueSats();
-        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
-        if(amountSats == null || amountSats <= 0 || depositUtxoAmountSats.isEmpty()) {
-            AppServices.showErrorDialog("Invalid amount", "Enter a valid deposit amount.");
-            return;
-        }
-        Optional<String> amountError = DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        Optional<String> amountError = getDepositAmountValidationError(amountSats);
         if(amountError.isPresent()) {
             AppServices.showErrorDialog("Invalid amount", amountError.get());
             return;
@@ -838,6 +858,11 @@ public class DepositController extends WalletFormController implements Initializ
         }
         fiatAmount.refresh(event.getUnitFormat());
         fiatFeeAmount.refresh(event.getUnitFormat());
+    }
+
+    @Subscribe
+    public void connectionEvent(ConnectionEvent event) {
+        StrataBridgeParametersService.getInstance().refresh();
     }
 
     @Subscribe

@@ -47,6 +47,13 @@ class DepositAmountValidatorTest {
     }
 
     @Test
+    void rejectsNonPositiveDenomination() {
+        Optional<String> error = DepositAmountValidator.validate(DENOMINATION_SATS, 0, MAX_DEPOSIT_SATS);
+        assertTrue(error.isPresent());
+        assertEquals("Unable to fetch deposit denomination from Strata node", error.get());
+    }
+
+    @Test
     void largestValidAmountCapsAtMaximumAndDenomination() {
         long candidate = MAX_DEPOSIT_SATS + (DENOMINATION_SATS / 2);
         assertEquals(MAX_DEPOSIT_SATS, DepositAmountValidator.largestValidAmount(candidate, DENOMINATION_SATS, MAX_DEPOSIT_SATS));
