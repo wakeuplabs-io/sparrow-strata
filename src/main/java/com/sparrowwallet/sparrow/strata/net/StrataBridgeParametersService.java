@@ -40,6 +40,12 @@ public class StrataBridgeParametersService {
         }
 
         Network network = Network.get();
+        if(network == Network.SIGNET) {
+            setDepositUtxoAmountSats(StrataBridgeConstants.SIGNET_MOCK_DEPOSIT_UTXO_AMOUNT_SATS);
+            refreshInProgress.set(false);
+            return;
+        }
+
         String rpcUrl = StrataBridgeConstants.getStrataRpcUrl(network);
         if(rpcUrl == null) {
             setDepositUtxoAmountSats(null);

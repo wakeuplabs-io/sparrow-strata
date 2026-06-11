@@ -13,6 +13,8 @@ public final class StrataBridgeConstants {
     public static final int RECOVER_DELAY = 1008;
     public static final int MAX_DRT_DESTINATION_BYTES = 42;
     public static final long MAX_DEPOSIT_SATS = 100L * 100_000_000L;
+    // TODO Replace this mocked signet denomination with the canonical full-node source once Alpen specifies it.
+    public static final long SIGNET_MOCK_DEPOSIT_UTXO_AMOUNT_SATS = 1_000_000_000L;
 
     public static final String MAINNET_STRATA_RPC_URL = "https://rpc.alpenlabs.io";
     public static final String TESTNET_STRATA_RPC_URL = "https://rpc.testnet.alpenlabs.io";

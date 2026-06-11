@@ -8,7 +8,6 @@ import com.sparrowwallet.sparrow.net.HttpClientService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,10 +19,6 @@ public class StrataRpcClient {
     private static final Gson GSON = new Gson();
 
     private static final String GET_ROLLUP_PARAMS_METHOD = "strata_getRollupParams";
-    private static final String GET_CURRENT_DEPOSITS_METHOD = "strata_getCurrentDeposits";
-    private static final String GET_CURRENT_DEPOSIT_BY_ID_METHOD = "strata_getCurrentDepositById";
-
-    private static final int DEPOSIT_SAMPLE_SIZE = 20;
 
     private final HttpClientService httpClientService;
     private final String rpcUrl;
@@ -34,11 +29,7 @@ public class StrataRpcClient {
     }
 
     public OptionalLong getDepositUtxoAmountSats() {
-        OptionalLong fromRollupParams = getDepositUtxoAmountFromRollupParams();
-        if(fromRollupParams.isPresent()) {
-            return fromRollupParams;
-        }
-        return inferDepositUtxoAmountFromDeposits();
+        return getDepositUtxoAmountFromRollupParams();
     }
 
     private OptionalLong getDepositUtxoAmountFromRollupParams() {
@@ -59,41 +50,6 @@ public class StrataRpcClient {
             }
         }
         return OptionalLong.empty();
-    }
-
-    private OptionalLong inferDepositUtxoAmountFromDeposits() {
-        try {
-            JsonElement depositsElement = callRaw(GET_CURRENT_DEPOSITS_METHOD, List.of());
-            if(depositsElement == null || !depositsElement.isJsonArray() || depositsElement.getAsJsonArray().isEmpty()) {
-                return OptionalLong.empty();
-            }
-
-            List<Long> amounts = new ArrayList<>();
-            int sampled = 0;
-            for(JsonElement depositIdElement : depositsElement.getAsJsonArray()) {
-                if(sampled >= DEPOSIT_SAMPLE_SIZE) {
-                    break;
-                }
-                int depositId = depositIdElement.getAsInt();
-                JsonObject deposit = call(GET_CURRENT_DEPOSIT_BY_ID_METHOD, List.of(depositId));
-                if(deposit == null || !deposit.has("amt")) {
-                    continue;
-                }
-                OptionalLong amount = StrataDepositDenominationParser.parseAmountField(deposit.get("amt"));
-                if(amount.isEmpty() || amount.getAsLong() <= 0) {
-                    continue;
-                }
-                amounts.add(amount.getAsLong());
-                sampled++;
-            }
-
-            return StrataDepositDenominationParser.inferDepositDenomination(amounts);
-        } catch(Exception e) {
-            if(log.isDebugEnabled()) {
-                log.debug("Failed to infer deposit denomination from {}", rpcUrl, e);
-            }
-            return OptionalLong.empty();
-        }
     }
 
     private JsonObject call(String method, List<Object> params) throws Exception {
