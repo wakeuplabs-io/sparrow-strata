@@ -676,7 +676,8 @@ public class DepositController extends WalletFormController implements Initializ
 
         Wallet wallet = getWalletForm().getWallet();
         double feeRate = getFeeRate() != null ? getFeeRate() : getFallbackFeeRate();
-        long noInputsFee = wallet.getNoInputsFee(List.of(new Payment(null, null, amountSatsOrZero(), false)), feeRate);
+        long bridgeOutputSats = amountSatsOrZero() + DepositTransactionFeeEstimator.calculateDepFee(feeRate);
+        long noInputsFee = wallet.getNoInputsFee(List.of(new Payment(null, null, bridgeOutputSats, false)), feeRate);
         long costOfChange = wallet.getCostOfChange(feeRate, getMinimumFeeRate());
 
         List<UtxoSelector> selectors = new ArrayList<>();
@@ -760,6 +761,7 @@ public class DepositController extends WalletFormController implements Initializ
                 descriptor,
                 amountSats,
                 depositLabel,
+                feeRate,
                 feeRate,
                 getMinimumFeeRate(),
                 AppServices.getMinimumRelayFeeRate(),
@@ -921,6 +923,7 @@ public class DepositController extends WalletFormController implements Initializ
                     amountSats,
                     label.getText(),
                     getUserFeeRate(),
+                    feeRate,
                     minimumFeeRate,
                     AppServices.getMinimumRelayFeeRate(),
                     userFee,
@@ -1365,11 +1368,11 @@ public class DepositController extends WalletFormController implements Initializ
         private boolean ignoreResult;
 
         public DepositFeeService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label,
-                                 double feeRate, double minimumFeeRate, double minRelayFeeRate,
+                                 double feeRate, double depFeeRate, double minimumFeeRate, double minRelayFeeRate,
                                  Integer currentBlockHeight, boolean groupByAddress, boolean includeMempoolOutputs,
                                  List<UtxoSelector> utxoSelectors, Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFilters) {
             this.depositRequestService = new DepositRequestService(wallet, depositDescriptor, amountSats, label,
-                    feeRate, minimumFeeRate, minRelayFeeRate, null, currentBlockHeight, groupByAddress, includeMempoolOutputs,
+                    feeRate, depFeeRate, minimumFeeRate, minRelayFeeRate, null, currentBlockHeight, groupByAddress, includeMempoolOutputs,
                     utxoSelectors, excludedChangeNodes, txoFilters);
         }
 

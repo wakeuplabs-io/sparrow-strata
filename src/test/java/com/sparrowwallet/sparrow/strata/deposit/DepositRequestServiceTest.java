@@ -2,6 +2,7 @@ package com.sparrowwallet.sparrow.strata.deposit;
 
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
+import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
 import com.sparrowwallet.drongo.protocol.Sha256Hash;
 import com.sparrowwallet.drongo.protocol.Transaction;
 import com.sparrowwallet.drongo.wallet.BlockTransaction;
@@ -62,6 +63,7 @@ class DepositRequestServiceTest {
                 DEPOSIT_AMOUNT,
                 "deposit",
                 2.0,
+                2.0,
                 1.0,
                 1.0,
                 null,
@@ -79,6 +81,46 @@ class DepositRequestServiceTest {
         assertEquals(presetUtxos.size(), walletTransaction.getSelectedUtxos().size());
         assertTrue(walletTransaction.getSelectedUtxos().containsKey(utxo1));
         assertTrue(walletTransaction.getSelectedUtxos().keySet().stream().noneMatch(u -> u.equals(utxo2)));
+    }
+
+    @Test
+    void bridgeInOutputIncludesDepFee() throws Exception {
+        Wallet wallet = createWalletWithTwoUtxos();
+        DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
+        double feeRate = 2.0;
+        long expectedBridgeOutput = DEPOSIT_AMOUNT + DepositTransactionFeeEstimator.calculateDepFee(feeRate);
+
+        DepositRequestService service = new DepositRequestService(
+                wallet,
+                descriptor,
+                DEPOSIT_AMOUNT,
+                "deposit",
+                feeRate,
+                feeRate,
+                1.0,
+                1.0,
+                null,
+                100,
+                false,
+                false
+        );
+
+        WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
+
+        WalletTransaction.PaymentOutput bridgeOutput = walletTransaction.getOutputs().stream()
+                .filter(WalletTransaction.PaymentOutput.class::isInstance)
+                .map(WalletTransaction.PaymentOutput.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(expectedBridgeOutput, bridgeOutput.getTransactionOutput().getValue());
+
+        WalletTransaction.NonAddressOutput opReturnOutput = walletTransaction.getOutputs().stream()
+                .filter(WalletTransaction.NonAddressOutput.class::isInstance)
+                .map(WalletTransaction.NonAddressOutput.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(0L, opReturnOutput.getTransactionOutput().getValue());
+        assertEquals(ScriptOpCodes.OP_RETURN, opReturnOutput.getTransactionOutput().getScript().getChunks().get(0).getOpcode());
     }
 
     private static Wallet createWalletWithTwoUtxos() throws ImportException {

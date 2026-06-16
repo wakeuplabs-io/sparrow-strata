@@ -21,6 +21,7 @@ public class DepositRequestService {
     private final long amountSats;
     private final String label;
     private final double feeRate;
+    private final double depFeeRate;
     private final double minimumFeeRate;
     private final double minRelayFeeRate;
     private final Long userFee;
@@ -32,14 +33,14 @@ public class DepositRequestService {
     private final List<TxoFilter> txoFiltersOverride;
 
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
-                                 double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
+                                 double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
                                  boolean groupByAddress, boolean includeMempoolOutputs) {
-        this(wallet, depositDescriptor, amountSats, label, feeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight,
+        this(wallet, depositDescriptor, amountSats, label, feeRate, depFeeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight,
                 groupByAddress, includeMempoolOutputs, null, Set.of(), null);
     }
 
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
-                                 double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
+                                 double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
                                  boolean groupByAddress, boolean includeMempoolOutputs, List<UtxoSelector> utxoSelectorsOverride,
                                  Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFiltersOverride) {
         this.wallet = wallet;
@@ -47,6 +48,7 @@ public class DepositRequestService {
         this.amountSats = amountSats;
         this.label = label;
         this.feeRate = feeRate;
+        this.depFeeRate = depFeeRate;
         this.minimumFeeRate = minimumFeeRate;
         this.minRelayFeeRate = minRelayFeeRate;
         this.userFee = userFee;
@@ -76,7 +78,8 @@ public class DepositRequestService {
         Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData());
         byte[] opReturnPayload = Sps50Encoder.encodeTag(headerAux.buildAuxData());
 
-        Payment payment = new Payment(bridgeInAddress, label, amountSats, false);
+        long depFee = DepositTransactionFeeEstimator.calculateDepFee(depFeeRate);
+        Payment payment = new Payment(bridgeInAddress, label, amountSats + depFee, false);
         List<Payment> payments = List.of(payment);
         List<UtxoSelector> utxoSelectors = utxoSelectorsOverride != null && !utxoSelectorsOverride.isEmpty()
                 ? utxoSelectorsOverride
