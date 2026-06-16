@@ -46,7 +46,7 @@ public class SettingsDialog extends Dialog<Boolean> {
             }
 
             dialogPane.setPrefWidth(750);
-            dialogPane.setPrefHeight(630);
+            dialogPane.setPrefHeight(700);
             dialogPane.setMinHeight(dialogPane.getPrefHeight());
             AppServices.moveToActiveWindowScreen(this);
 
