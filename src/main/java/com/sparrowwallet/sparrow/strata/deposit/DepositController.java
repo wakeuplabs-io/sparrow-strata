@@ -203,6 +203,18 @@ public class DepositController extends WalletFormController implements Initializ
 
     private final StringProperty utxoLabelSelectionProperty = new SimpleStringProperty("");
 
+    private final ChangeListener<String> amountListener = new ChangeListener<>() {
+        @Override
+        public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
+            if(utxoSelectorProperty.get() instanceof MaxUtxoSelector) {
+                utxoSelectorProperty.setValue(null);
+            }
+            maxButton.setSelected(false);
+            updateConfirmButton();
+            updateFee();
+        }
+    };
+
     private final ChangeListener<String> feeListener = new ChangeListener<>() {
         @Override
         public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
@@ -260,6 +272,7 @@ public class DepositController extends WalletFormController implements Initializ
         StrataBridgeParametersService.getInstance().refresh();
         StrataBridgeKeyVerificationService.getInstance().refresh();
         updateConfirmButton();
+        updateMaxButton();
         updateFee();
     }
 
@@ -310,14 +323,16 @@ public class DepositController extends WalletFormController implements Initializ
 
         validationSupport.validationResultProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
         depositTo.textProperty().addListener((observable, oldValue, newValue) -> {
+            syncDepositAddressProperty(newValue);
             updateConfirmButton();
+            updateMaxButton();
             updateFee();
         });
-        label.textProperty().addListener((observable, oldValue, newValue) -> updateConfirmButton());
-        amount.textProperty().addListener((observable, oldValue, newValue) -> {
+        label.textProperty().addListener((observable, oldValue, newValue) -> {
             updateConfirmButton();
-            updateFee();
+            updateMaxButton();
         });
+        amount.textProperty().addListener(amountListener);
     }
 
     private ValidationResult validateDepositAmount(Control control, String value) {
@@ -366,6 +381,33 @@ public class DepositController extends WalletFormController implements Initializ
     public DepositDescriptor getDepositDescriptor() {
         AlpenAddressParseResult result = depositAddressProperty.get();
         return result == null ? null : result.getDepositDescriptor();
+    }
+
+    private void syncDepositAddressProperty(String value) {
+        if(value == null || value.isBlank()) {
+            depositAddressProperty.set(null);
+            return;
+        }
+
+        try {
+            depositAddressProperty.set(AlpenAddressParser.parse(value, Network.get()));
+        } catch(IllegalArgumentException e) {
+            depositAddressProperty.set(null);
+        }
+    }
+
+    private boolean isValidDepositAddress() {
+        String value = depositTo.getText();
+        if(value == null || value.isBlank()) {
+            return false;
+        }
+
+        try {
+            AlpenAddressParser.parse(value, Network.get());
+            return true;
+        } catch(IllegalArgumentException e) {
+            return false;
+        }
     }
 
     private void initializeAmountFields() {
@@ -480,11 +522,13 @@ public class DepositController extends WalletFormController implements Initializ
         utxoSelectorProperty.addListener((observable, oldValue, utxoSelector) -> {
             updateMaxClearButtons(utxoSelector, txoFilterProperty.get());
             updateOptimizationButtons();
+            updateMaxButton();
             updateFee();
         });
 
         txoFilterProperty.addListener((observable, oldValue, txoFilter) -> {
             updateMaxClearButtons(utxoSelectorProperty.get(), txoFilter);
+            updateMaxButton();
             updateFee();
         });
 
@@ -541,6 +585,90 @@ public class DepositController extends WalletFormController implements Initializ
         privacyToggle.setDisable(coinControl);
     }
 
+    private boolean isValidAddressAndLabel() {
+        return isValidDepositAddress() && label.getText() != null && !label.getText().isBlank();
+    }
+
+    private long getAvailableBalanceSats() {
+        UtxoSelector utxoSelector = utxoSelectorProperty.get();
+        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+            return presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        }
+        return getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+    }
+
+    private boolean isMaxButtonEnabled() {
+        long balanceSats = getAvailableBalanceSats();
+        if(balanceSats <= 0) {
+            if(log.isDebugEnabled()) {
+                log.debug("Deposit max disabled: no spendable UTXOs");
+            }
+            return false;
+        }
+        if(StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats().isEmpty()) {
+            if(log.isDebugEnabled()) {
+                log.debug("Deposit max disabled: deposit denomination unavailable for network {}", Network.get());
+            }
+            return false;
+        }
+        boolean enabled = isValidAddressAndLabel() || utxoSelectorProperty.get() instanceof PresetUtxoSelector;
+        if(log.isDebugEnabled() && !enabled) {
+            log.debug("Deposit max disabled: valid address and label required (addressValid={}, labelPresent={})",
+                    isValidDepositAddress(), label.getText() != null && !label.getText().isBlank());
+        }
+        return enabled;
+    }
+
+    private void updateMaxButton() {
+        maxButton.setDisable(!isMaxButtonEnabled());
+    }
+
+    private boolean applyMaxAmountFromBalance(long balanceSats, boolean selectMaxToggle) {
+        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
+        if(balanceSats <= 0) {
+            log.warn("Deposit max: no spendable balance");
+            if(selectMaxToggle) {
+                maxButton.setSelected(false);
+            }
+            return false;
+        }
+        if(depositUtxoAmountSats.isEmpty()) {
+            log.warn("Deposit max: deposit denomination unavailable for network {}", Network.get());
+            if(selectMaxToggle) {
+                maxButton.setSelected(false);
+            }
+            return false;
+        }
+
+        Double feeRate = getFeeRate();
+        long spendableBalance = balanceSats;
+        long reservedForFees = 0;
+        if(feeRate != null) {
+            reservedForFees = estimateReservedSatsForDepositFees(feeRate);
+            spendableBalance = Math.max(0, balanceSats - reservedForFees);
+        }
+
+        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        if(maxAmount > 0) {
+            setAmountValueSats(maxAmount);
+            if(selectMaxToggle) {
+                maxButton.setSelected(true);
+            }
+            if(log.isDebugEnabled()) {
+                log.debug("Deposit max: set amount to {} sats (balance {} sats, reserved {} sats, denomination {} sats)",
+                        maxAmount, balanceSats, reservedForFees, depositUtxoAmountSats.getAsLong());
+            }
+            return true;
+        }
+
+        log.warn("Deposit max: insufficient funds after fees (balance {} sats, reserved {} sats, spendable {} sats, denomination {} sats)",
+                balanceSats, reservedForFees, spendableBalance, depositUtxoAmountSats.getAsLong());
+        if(selectMaxToggle) {
+            maxButton.setSelected(false);
+        }
+        return false;
+    }
+
     private List<UtxoSelector> getUtxoSelectors() {
         if(utxoSelectorProperty.get() != null) {
             return List.of(utxoSelectorProperty.get());
@@ -589,11 +717,17 @@ public class DepositController extends WalletFormController implements Initializ
         fee.textProperty().addListener(feeListener);
         fiatFeeAmount.setText("");
 
+        maxButton.setSelected(false);
         updateOptimizationButtons();
+        updateMaxButton();
         updateFee();
     }
 
     private void updateFee() {
+        if(maxButton.isSelected()) {
+            applyMaxAmountFromBalance(getAvailableBalanceSats(), true);
+        }
+
         if(userFeeSet.get()) {
             return;
         }
@@ -601,6 +735,9 @@ public class DepositController extends WalletFormController implements Initializ
         DepositDescriptor descriptor = getDepositDescriptor();
         Long amountSats = getAmountValueSats();
         if(descriptor == null || amountSats == null || amountSats <= 0) {
+            if(log.isDebugEnabled() && maxButton.isSelected()) {
+                log.debug("Deposit fee update skipped: descriptor={}, amountSats={}", descriptor != null, amountSats);
+            }
             clearFee();
             return;
         }
@@ -687,29 +824,45 @@ public class DepositController extends WalletFormController implements Initializ
 
     @FXML
     public void setMaxAmount(ActionEvent event) {
-        long balance;
-        UtxoSelector utxoSelector = utxoSelectorProperty.get();
-        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
-            balance = presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
-        } else {
-            balance = getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
-        }
-        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
-        if(balance <= 0 || depositUtxoAmountSats.isEmpty()) {
+        if(maxButton.isDisable()) {
+            log.warn("Deposit max clicked while disabled (balance {} sats, addressValid={}, labelPresent={}, coinControl={})",
+                    getAvailableBalanceSats(), isValidDepositAddress(), label.getText() != null && !label.getText().isBlank(),
+                    utxoSelectorProperty.get() instanceof PresetUtxoSelector);
             return;
         }
 
-        Double feeRate = getFeeRate();
-        long spendableBalance = balance;
-        if(feeRate != null) {
-            long reservedForFees = estimateReservedSatsForDepositFees(feeRate);
-            spendableBalance = Math.max(0, balance - reservedForFees);
-        }
+        try {
+            UtxoSelector utxoSelector = utxoSelectorProperty.get();
+            if(utxoSelector == null) {
+                if(log.isDebugEnabled()) {
+                    log.debug("Deposit max: enabling MaxUtxoSelector");
+                }
+                utxoSelectorProperty.set(new MaxUtxoSelector());
+            } else if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector && !isValidAddressAndLabel()) {
+                long presetBalance = presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+                if(log.isDebugEnabled()) {
+                    log.debug("Deposit max: applying amount from {} preset UTXOs ({} sats)", presetUtxoSelector.getPresetUtxos().size(), presetBalance);
+                }
+                if(!applyMaxAmountFromBalance(presetBalance, true)) {
+                    log.warn("Deposit max: failed to apply amount from preset UTXOs");
+                }
+                updateFee();
+                return;
+            }
 
-        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
-        if(maxAmount > 0) {
-            setAmountValueSats(maxAmount);
-            maxButton.setSelected(true);
+            long balance = getAvailableBalanceSats();
+            if(log.isDebugEnabled()) {
+                log.debug("Deposit max: applying amount from available balance {} sats (selector={})",
+                        balance, utxoSelectorProperty.get() == null ? "none" : utxoSelectorProperty.get().getClass().getSimpleName());
+            }
+            if(!applyMaxAmountFromBalance(balance, true)) {
+                log.warn("Deposit max: failed to apply amount from available balance {} sats", balance);
+            }
+            updateFee();
+        } catch(Exception e) {
+            maxButton.setSelected(false);
+            log.error("Deposit max failed", e);
+            AppServices.showErrorDialog("Deposit max failed", e.getMessage());
         }
     }
 
@@ -866,10 +1019,12 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private void setAmountValueSats(long amountValue) {
+        amount.textProperty().removeListener(amountListener);
         UnitFormat unitFormat = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
         DecimalFormat df = new DecimalFormat("#.#", unitFormat.getDecimalFormatSymbols());
         df.setMaximumFractionDigits(8);
         amount.setText(df.format(amountUnit.getValue().getValue(amountValue)));
+        amount.textProperty().addListener(amountListener);
         setFiatAmount(AppServices.getFiatCurrencyExchangeRate(), amountValue);
         updateConfirmButton();
     }
@@ -1099,8 +1254,21 @@ public class DepositController extends WalletFormController implements Initializ
         Platform.runLater(() -> {
             revalidateAmountField();
             updateConfirmButton();
+            updateMaxButton();
             updateFee();
         });
+    }
+
+    @Subscribe
+    public void walletHistoryChanged(WalletHistoryChangedEvent event) {
+        if(event.fromThisOrNested(getWalletForm().getWallet())) {
+            Platform.runLater(() -> {
+                updateMaxButton();
+                if(maxButton.isSelected()) {
+                    updateFee();
+                }
+            });
+        }
     }
 
     private void revalidateAmountField() {
@@ -1114,7 +1282,10 @@ public class DepositController extends WalletFormController implements Initializ
         if(event.getUtxos() != null && !event.getUtxos().isEmpty() && event.getWallet().equals(getWalletForm().getWallet())) {
             utxoSelectorProperty.set(new PresetUtxoSelector(event.getUtxos(), false, false));
             txoFilterProperty.set(null);
+            long balance = event.getUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+            applyMaxAmountFromBalance(balance, true);
             updateOptimizationButtons();
+            updateMaxButton();
             updateFee();
         }
     }
