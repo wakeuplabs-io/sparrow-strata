@@ -5,6 +5,19 @@ import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
 import com.sparrowwallet.drongo.wallet.InsufficientFundsException;
+import com.sparrowwallet.drongo.wallet.PresetUtxoSelector;
+import com.sparrowwallet.drongo.wallet.UtxoSelector;
+import com.sparrowwallet.drongo.wallet.BnBUtxoSelector;
+import com.sparrowwallet.drongo.wallet.KnapsackUtxoSelector;
+import com.sparrowwallet.drongo.wallet.StonewallUtxoSelector;
+import com.sparrowwallet.drongo.wallet.ExcludeTxoFilter;
+import com.sparrowwallet.drongo.wallet.MaxUtxoSelector;
+import com.sparrowwallet.drongo.wallet.SpentTxoFilter;
+import com.sparrowwallet.drongo.wallet.FrozenTxoFilter;
+import com.sparrowwallet.drongo.wallet.CoinbaseTxoFilter;
+import com.sparrowwallet.drongo.wallet.TxoFilter;
+import com.sparrowwallet.drongo.wallet.Payment;
+import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.drongo.wallet.WalletNodePayment;
@@ -26,12 +39,15 @@ import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
 import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.wallet.FeeRatesSelection;
+import com.sparrowwallet.sparrow.wallet.OptimizationStrategy;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
 import javafx.concurrent.Service;
@@ -139,6 +155,9 @@ public class DepositController extends WalletFormController implements Initializ
     private RecentBlocksView recentBlocksView;
 
     @FXML
+    private TransactionDiagram transactionDiagram;
+
+    @FXML
     private ToggleGroup optimizationToggleGroup;
 
     @FXML
@@ -159,6 +178,9 @@ public class DepositController extends WalletFormController implements Initializ
     @FXML
     private Button confirmButton;
 
+    @FXML
+    private Button clearButton;
+
     private ValidationSupport validationSupport;
 
     private final ObjectProperty<AlpenAddressParseResult> depositAddressProperty = new SimpleObjectProperty<>(null);
@@ -171,6 +193,16 @@ public class DepositController extends WalletFormController implements Initializ
 
     private DepositFeeService depositFeeService;
 
+    private final ObjectProperty<UtxoSelector> utxoSelectorProperty = new SimpleObjectProperty<>(null);
+
+    private final ObjectProperty<TxoFilter> txoFilterProperty = new SimpleObjectProperty<>(null);
+
+    private final ObjectProperty<WalletTransaction> walletTransactionProperty = new SimpleObjectProperty<>(null);
+
+    private final Set<WalletNode> excludedChangeNodes = new HashSet<>();
+
+    private final StringProperty utxoLabelSelectionProperty = new SimpleStringProperty("");
+
     private final ChangeListener<String> feeListener = new ChangeListener<>() {
         @Override
         public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
@@ -181,6 +213,7 @@ public class DepositController extends WalletFormController implements Initializ
                 setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), getFeeValueSats());
             }
             setTargetBlocks(getTargetBlocks());
+            updateFee();
         }
     };
 
@@ -222,6 +255,7 @@ public class DepositController extends WalletFormController implements Initializ
         addValidation();
         initializeAmountFields();
         initializeFeeSection();
+        initializeCoinControl();
         initializeBridgeLinks();
         StrataBridgeParametersService.getInstance().refresh();
         StrataBridgeKeyVerificationService.getInstance().refresh();
@@ -437,6 +471,128 @@ public class DepositController extends WalletFormController implements Initializ
         });
     }
 
+    private void initializeCoinControl() {
+        utxoLabelSelectionProperty.addListener((observable, oldValue, newValue) -> {
+            maxButton.setText("Max" + newValue);
+            clearButton.setText("Clear" + newValue);
+        });
+
+        utxoSelectorProperty.addListener((observable, oldValue, utxoSelector) -> {
+            updateMaxClearButtons(utxoSelector, txoFilterProperty.get());
+            updateOptimizationButtons();
+            updateFee();
+        });
+
+        txoFilterProperty.addListener((observable, oldValue, txoFilter) -> {
+            updateMaxClearButtons(utxoSelectorProperty.get(), txoFilter);
+            updateFee();
+        });
+
+        walletTransactionProperty.addListener((observable, oldValue, walletTransaction) -> {
+            if(walletTransaction != null && !userFeeSet.get()) {
+                Double feeRate = getFeeRate();
+                if(feeRate != null) {
+                    setFeeValueSats(getTotalMiningFeeSats(walletTransaction.getFee(), feeRate));
+                }
+            }
+            transactionDiagram.update(walletTransaction);
+        });
+
+        transactionDiagram.sceneProperty().addListener((observable, oldScene, newScene) -> {
+            if(oldScene == null && newScene != null) {
+                transactionDiagram.update(walletTransactionProperty.get());
+            }
+        });
+
+        efficiencyToggle.setOnAction(event -> {
+            Config.get().setSendOptimizationStrategy(OptimizationStrategy.EFFICIENCY);
+            updateFee();
+        });
+        privacyToggle.setOnAction(event -> {
+            Config.get().setSendOptimizationStrategy(OptimizationStrategy.PRIVACY);
+            updateFee();
+        });
+
+        OptimizationStrategy strategy = Config.get().getSendOptimizationStrategy();
+        if(strategy == OptimizationStrategy.PRIVACY) {
+            privacyToggle.setSelected(true);
+        } else {
+            efficiencyToggle.setSelected(true);
+        }
+    }
+
+    private void updateMaxClearButtons(UtxoSelector utxoSelector, TxoFilter txoFilter) {
+        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+            int num = presetUtxoSelector.getPresetUtxos().size();
+            String selection = " (" + num + " UTXO" + (num != 1 ? "s" : "") + " selected)";
+            utxoLabelSelectionProperty.set(selection);
+        } else if(txoFilter instanceof ExcludeTxoFilter excludeTxoFilter) {
+            int num = excludeTxoFilter.getExcludedTxos().size();
+            String exclusion = " (" + num + " UTXO" + (num != 1 ? "s" : "") + " excluded)";
+            utxoLabelSelectionProperty.set(exclusion);
+        } else {
+            utxoLabelSelectionProperty.set("");
+        }
+    }
+
+    private void updateOptimizationButtons() {
+        boolean coinControl = utxoSelectorProperty.get() != null;
+        efficiencyToggle.setDisable(coinControl);
+        privacyToggle.setDisable(coinControl);
+    }
+
+    private List<UtxoSelector> getUtxoSelectors() {
+        if(utxoSelectorProperty.get() != null) {
+            return List.of(utxoSelectorProperty.get());
+        }
+
+        Wallet wallet = getWalletForm().getWallet();
+        double feeRate = getFeeRate() != null ? getFeeRate() : getFallbackFeeRate();
+        long noInputsFee = wallet.getNoInputsFee(List.of(new Payment(null, null, amountSatsOrZero(), false)), feeRate);
+        long costOfChange = wallet.getCostOfChange(feeRate, getMinimumFeeRate());
+
+        List<UtxoSelector> selectors = new ArrayList<>();
+        OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
+        if(optimizationStrategy == OptimizationStrategy.PRIVACY) {
+            selectors.add(new StonewallUtxoSelector(getWalletForm().getWallet().getNode(KeyPurpose.RECEIVE).getAddress().getScriptType(), noInputsFee));
+        }
+
+        selectors.addAll(List.of(new BnBUtxoSelector(noInputsFee, costOfChange), new KnapsackUtxoSelector(noInputsFee)));
+        return selectors;
+    }
+
+    private long amountSatsOrZero() {
+        Long amountSats = getAmountValueSats();
+        return amountSats == null ? 0L : amountSats;
+    }
+
+    private List<TxoFilter> getTxoFilters() {
+        TxoFilter txoFilter = txoFilterProperty.get();
+        if(txoFilter != null) {
+            return List.of(txoFilter, new SpentTxoFilter(null), new FrozenTxoFilter(), new CoinbaseTxoFilter(getWalletForm().getWallet()));
+        }
+
+        return List.of(new SpentTxoFilter(null), new FrozenTxoFilter(), new CoinbaseTxoFilter(getWalletForm().getWallet()));
+    }
+
+    @FXML
+    public void clear(ActionEvent event) {
+        utxoSelectorProperty.setValue(null);
+        txoFilterProperty.setValue(null);
+        excludedChangeNodes.clear();
+        walletTransactionProperty.setValue(null);
+        getWalletForm().setCreatedWalletTransaction(null);
+
+        userFeeSet.set(false);
+        fee.textProperty().removeListener(feeListener);
+        fee.setText("");
+        fee.textProperty().addListener(feeListener);
+        fiatFeeAmount.setText("");
+
+        updateOptimizationButtons();
+        updateFee();
+    }
+
     private void updateFee() {
         if(userFeeSet.get()) {
             return;
@@ -472,13 +628,17 @@ public class DepositController extends WalletFormController implements Initializ
                 AppServices.getMinimumRelayFeeRate(),
                 AppServices.getCurrentBlockHeight(),
                 Config.get().isGroupByAddress(),
-                Config.get().isIncludeMempoolOutputs()
+                Config.get().isIncludeMempoolOutputs(),
+                getUtxoSelectors(),
+                excludedChangeNodes,
+                getTxoFilters()
         );
 
         final DepositFeeService currentService = depositFeeService;
         depositFeeService.setOnSucceeded(event -> {
             if(!currentService.isIgnoreResult()) {
                 WalletTransaction walletTransaction = currentService.getValue();
+                walletTransactionProperty.setValue(walletTransaction);
                 if(walletTransaction != null) {
                     setFeeValueSats(getTotalMiningFeeSats(walletTransaction.getFee(), feeRate));
                 }
@@ -486,6 +646,7 @@ public class DepositController extends WalletFormController implements Initializ
         });
         depositFeeService.setOnFailed(event -> {
             if(!currentService.isIgnoreResult()) {
+                walletTransactionProperty.setValue(null);
                 clearFee();
             }
         });
@@ -526,7 +687,13 @@ public class DepositController extends WalletFormController implements Initializ
 
     @FXML
     public void setMaxAmount(ActionEvent event) {
-        long balance = getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        long balance;
+        UtxoSelector utxoSelector = utxoSelectorProperty.get();
+        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+            balance = presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        } else {
+            balance = getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        }
         OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
         if(balance <= 0 || depositUtxoAmountSats.isEmpty()) {
             return;
@@ -606,7 +773,10 @@ public class DepositController extends WalletFormController implements Initializ
                     userFee,
                     AppServices.getCurrentBlockHeight(),
                     Config.get().isGroupByAddress(),
-                    Config.get().isIncludeMempoolOutputs()
+                    Config.get().isIncludeMempoolOutputs(),
+                    getUtxoSelectors(),
+                    excludedChangeNodes,
+                    getTxoFilters()
             );
 
             DepositRequestService.DepositRequestResult result = service.createWalletTransaction();
@@ -897,6 +1067,7 @@ public class DepositController extends WalletFormController implements Initializ
 
     @Subscribe
     public void unitFormatChanged(UnitFormatChangedEvent event) {
+        transactionDiagram.update(transactionDiagram.getWalletTransaction());
         if(amount.getTextFormatter() instanceof CoinTextFormatter coinTextFormatter && coinTextFormatter.getUnitFormat() != event.getUnitFormat()) {
             UnitFormat format = coinTextFormatter.getUnitFormat() == null ? UnitFormat.DOT : coinTextFormatter.getUnitFormat();
             Long value = getAmountValueSats(format, amountUnit.getSelectionModel().getSelectedItem());
@@ -939,6 +1110,71 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     @Subscribe
+    public void depositSpendUtxos(DepositSpendUtxoEvent event) {
+        if(event.getUtxos() != null && !event.getUtxos().isEmpty() && event.getWallet().equals(getWalletForm().getWallet())) {
+            utxoSelectorProperty.set(new PresetUtxoSelector(event.getUtxos(), false, false));
+            txoFilterProperty.set(null);
+            updateOptimizationButtons();
+            updateFee();
+        }
+    }
+
+    @Subscribe
+    public void excludeUtxo(ExcludeUtxoEvent event) {
+        if(event.getWalletTransaction() == walletTransactionProperty.get()) {
+            UtxoSelector utxoSelector = utxoSelectorProperty.get();
+            if(utxoSelector instanceof MaxUtxoSelector) {
+                Collection<BlockTransactionHashIndex> utxos = event.getWalletTransaction().getSelectedUtxos().keySet();
+                utxos.remove(event.getUtxo());
+                PresetUtxoSelector presetUtxoSelector = new PresetUtxoSelector(utxos);
+                presetUtxoSelector.getExcludedUtxos().add(event.getUtxo());
+                utxoSelectorProperty.set(presetUtxoSelector);
+                updateFee();
+            } else if(utxoSelector instanceof PresetUtxoSelector existingUtxoSelector) {
+                PresetUtxoSelector presetUtxoSelector = new PresetUtxoSelector(existingUtxoSelector.getPresetUtxos(), existingUtxoSelector.getExcludedUtxos());
+                presetUtxoSelector.getPresetUtxos().remove(event.getUtxo());
+                presetUtxoSelector.getExcludedUtxos().add(event.getUtxo());
+                utxoSelectorProperty.set(presetUtxoSelector);
+                updateFee();
+            } else {
+                ExcludeTxoFilter excludeTxoFilter = new ExcludeTxoFilter();
+                if(txoFilterProperty.get() instanceof ExcludeTxoFilter existingTxoFilter) {
+                    excludeTxoFilter.getExcludedTxos().addAll(existingTxoFilter.getExcludedTxos());
+                }
+
+                excludeTxoFilter.getExcludedTxos().add(event.getUtxo());
+                txoFilterProperty.set(excludeTxoFilter);
+                updateFee();
+            }
+        }
+    }
+
+    @Subscribe
+    public void replaceChangeAddress(ReplaceChangeAddressEvent event) {
+        if(event.getWalletTransaction() == walletTransactionProperty.get()) {
+            excludedChangeNodes.addAll(event.getWalletTransaction().getChangeMap().keySet());
+            updateFee();
+        }
+    }
+
+    @Subscribe
+    public void walletUtxoStatusChanged(WalletUtxoStatusChangedEvent event) {
+        if(event.fromThisOrNested(getWalletForm().getWallet())) {
+            UtxoSelector utxoSelector = utxoSelectorProperty.get();
+            if(utxoSelector instanceof MaxUtxoSelector) {
+                updateFee();
+            } else if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+                PresetUtxoSelector updated = new PresetUtxoSelector(presetUtxoSelector.getPresetUtxos());
+                updated.getPresetUtxos().removeAll(event.getUtxos());
+                utxoSelectorProperty.set(updated);
+                updateFee();
+            } else {
+                updateFee();
+            }
+        }
+    }
+
+    @Subscribe
     public void exchangeRatesUpdated(ExchangeRatesUpdatedEvent event) {
         setFiatAmount(event.getCurrencyRate(), getAmountValueSats());
         setFiatFeeAmount(event.getCurrencyRate(), getFeeValueSats());
@@ -959,9 +1195,11 @@ public class DepositController extends WalletFormController implements Initializ
 
         public DepositFeeService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label,
                                  double feeRate, double minimumFeeRate, double minRelayFeeRate,
-                                 Integer currentBlockHeight, boolean groupByAddress, boolean includeMempoolOutputs) {
+                                 Integer currentBlockHeight, boolean groupByAddress, boolean includeMempoolOutputs,
+                                 List<UtxoSelector> utxoSelectors, Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFilters) {
             this.depositRequestService = new DepositRequestService(wallet, depositDescriptor, amountSats, label,
-                    feeRate, minimumFeeRate, minRelayFeeRate, null, currentBlockHeight, groupByAddress, includeMempoolOutputs);
+                    feeRate, minimumFeeRate, minRelayFeeRate, null, currentBlockHeight, groupByAddress, includeMempoolOutputs,
+                    utxoSelectors, excludedChangeNodes, txoFilters);
         }
 
         @Override

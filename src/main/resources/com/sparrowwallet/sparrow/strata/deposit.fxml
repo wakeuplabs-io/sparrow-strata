@@ -8,6 +8,7 @@
 <?import com.sparrowwallet.sparrow.control.HelpLabel?>
 <?import com.sparrowwallet.sparrow.control.MempoolSizeFeeRatesChart?>
 <?import com.sparrowwallet.sparrow.control.RecentBlocksView?>
+<?import com.sparrowwallet.sparrow.control.TransactionDiagram?>
 <?import com.sparrowwallet.sparrow.wallet.FeeRatesSelection?>
 <?import com.sparrowwallet.sparrow.wallet.OptimizationStrategy?>
 <?import javafx.collections.FXCollections?>
@@ -183,7 +184,9 @@
                     <RecentBlocksView fx:id="recentBlocksView" styleClass="feeRatesChart" AnchorPane.topAnchor="10" AnchorPane.leftAnchor="20" translateX="54" translateY="30" minWidth="335" prefWidth="335" maxWidth="335" minHeight="135" prefHeight="135" maxHeight="135"/>
                 </AnchorPane>
             </GridPane>
-            <StackPane VBox.vgrow="SOMETIMES" />
+            <StackPane VBox.vgrow="SOMETIMES">
+                <TransactionDiagram fx:id="transactionDiagram" />
+            </StackPane>
         </VBox>
     </center>
     <bottom>
@@ -222,6 +225,8 @@
                 <Hyperlink fx:id="bridgeWithdrawalsLink" text="Bridge Withdrawals" onAction="#openBridgeWithdrawals" />
             </HBox>
             <HBox AnchorPane.rightAnchor="10">
+                <Button fx:id="clearButton" text="Clear" cancelButton="true" onAction="#clear" />
+                <Region HBox.hgrow="ALWAYS" style="-fx-min-width: 20px" />
                 <Button fx:id="confirmButton" text="Confirm" defaultButton="true" disable="true" contentDisplay="RIGHT" graphicTextGap="5" onAction="#confirm">
                     <graphic>
                         <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="12" icon="ANGLE_DOUBLE_RIGHT" />

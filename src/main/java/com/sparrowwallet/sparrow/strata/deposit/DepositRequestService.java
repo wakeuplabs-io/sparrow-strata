@@ -27,10 +27,21 @@ public class DepositRequestService {
     private final Integer currentBlockHeight;
     private final boolean groupByAddress;
     private final boolean includeMempoolOutputs;
+    private final List<UtxoSelector> utxoSelectorsOverride;
+    private final Set<WalletNode> excludedChangeNodes;
+    private final List<TxoFilter> txoFiltersOverride;
 
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
                                  double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
                                  boolean groupByAddress, boolean includeMempoolOutputs) {
+        this(wallet, depositDescriptor, amountSats, label, feeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight,
+                groupByAddress, includeMempoolOutputs, null, Set.of(), null);
+    }
+
+    public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
+                                 double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
+                                 boolean groupByAddress, boolean includeMempoolOutputs, List<UtxoSelector> utxoSelectorsOverride,
+                                 Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFiltersOverride) {
         this.wallet = wallet;
         this.depositDescriptor = depositDescriptor;
         this.amountSats = amountSats;
@@ -42,6 +53,9 @@ public class DepositRequestService {
         this.currentBlockHeight = currentBlockHeight;
         this.groupByAddress = groupByAddress;
         this.includeMempoolOutputs = includeMempoolOutputs;
+        this.utxoSelectorsOverride = utxoSelectorsOverride;
+        this.excludedChangeNodes = excludedChangeNodes == null ? Set.of() : excludedChangeNodes;
+        this.txoFiltersOverride = txoFiltersOverride;
     }
 
     public DepositRequestResult createWalletTransaction() throws InsufficientFundsException {
@@ -64,15 +78,19 @@ public class DepositRequestService {
 
         Payment payment = new Payment(bridgeInAddress, label, amountSats, false);
         List<Payment> payments = List.of(payment);
-        List<UtxoSelector> utxoSelectors = getUtxoSelectors(payments);
-        List<TxoFilter> txoFilters = List.of(new SpentTxoFilter(null), new FrozenTxoFilter(), new CoinbaseTxoFilter(wallet));
+        List<UtxoSelector> utxoSelectors = utxoSelectorsOverride != null && !utxoSelectorsOverride.isEmpty()
+                ? utxoSelectorsOverride
+                : getDefaultUtxoSelectors(payments);
+        List<TxoFilter> txoFilters = txoFiltersOverride != null
+                ? txoFiltersOverride
+                : List.of(new SpentTxoFilter(null), new FrozenTxoFilter(), new CoinbaseTxoFilter(wallet));
 
         TransactionParameters params = new TransactionParameters(
                 utxoSelectors,
                 txoFilters,
                 payments,
                 List.of(opReturnPayload),
-                Set.of(),
+                excludedChangeNodes,
                 feeRate,
                 minimumFeeRate,
                 minRelayFeeRate,
@@ -90,7 +108,7 @@ public class DepositRequestService {
         return new DepositRequestResult(orderedTransaction, recoveryKeyPair);
     }
 
-    private List<UtxoSelector> getUtxoSelectors(List<Payment> payments) {
+    private List<UtxoSelector> getDefaultUtxoSelectors(List<Payment> payments) {
         long noInputsFee = wallet.getNoInputsFee(payments, feeRate);
         long costOfChange = wallet.getCostOfChange(feeRate, minimumFeeRate);
         return List.of(new BnBUtxoSelector(noInputsFee, costOfChange), new KnapsackUtxoSelector(noInputsFee));

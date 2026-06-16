@@ -67,6 +67,9 @@ public class UtxosController extends WalletFormController implements Initializab
     private Button sendSelected;
 
     @FXML
+    private Button depositSelected;
+
+    @FXML
     private UtxosChart utxosChart;
 
     @Override
@@ -90,7 +93,9 @@ public class UtxosController extends WalletFormController implements Initializab
 
         clear.setDisable(true);
         sendSelected.setDisable(true);
+        depositSelected.setDisable(true);
         sendSelected.setTooltip(new Tooltip("Send selected UTXOs. Use " + (OsType.getCurrent() == OsType.MACOS ? "Cmd" : "Ctrl") + "+click to select multiple." ));
+        depositSelected.setTooltip(new Tooltip("Deposit selected UTXOs to Alpen. Use " + (OsType.getCurrent() == OsType.MACOS ? "Cmd" : "Ctrl") + "+click to select multiple." ));
 
         utxosTable.getSelectionModel().getSelectedIndices().addListener((ListChangeListener<Integer>) c -> {
             List<Entry> selectedEntries = utxosTable.getSelectionModel().getSelectedCells().stream().filter(tp -> tp.getTreeItem() != null).map(tp -> tp.getTreeItem().getValue()).collect(Collectors.toList());
@@ -118,11 +123,17 @@ public class UtxosController extends WalletFormController implements Initializab
         selectAll.setDisable(utxosTable.getRoot().getChildren().size() == utxosTable.getSelectionModel().getSelectedCells().size());
         clear.setDisable(selectedEntries.isEmpty());
         sendSelected.setDisable(selectedEntries.isEmpty());
+        depositSelected.setDisable(selectedEntries.isEmpty());
 
         long selectedTotal = selectedEntries.stream().mapToLong(Entry::getValue).sum();
+        updateSelectedButtonLabel(sendSelected, "Send Selected", selectedTotal, format, unit);
+        updateSelectedButtonLabel(depositSelected, "Deposit Selected", selectedTotal, format, unit);
+    }
+
+    private void updateSelectedButtonLabel(Button button, String baseLabel, long selectedTotal, UnitFormat format, BitcoinUnit unit) {
         if(selectedTotal > 0) {
             if(Config.get().isHideAmounts()) {
-                sendSelected.setText("Send Selected");
+                button.setText(baseLabel);
             } else {
                 if(format == null) {
                     format = UnitFormat.DOT;
@@ -133,13 +144,13 @@ public class UtxosController extends WalletFormController implements Initializab
                 }
 
                 if(unit.equals(BitcoinUnit.BTC)) {
-                    sendSelected.setText("Send Selected (" + format.formatBtcValue(selectedTotal) + " BTC)");
+                    button.setText(baseLabel + " (" + format.formatBtcValue(selectedTotal) + " BTC)");
                 } else {
-                    sendSelected.setText("Send Selected (" + format.formatSatsValue(selectedTotal) + " sats)");
+                    button.setText(baseLabel + " (" + format.formatSatsValue(selectedTotal) + " sats)");
                 }
             }
         } else {
-            sendSelected.setText("Send Selected");
+            button.setText(baseLabel);
         }
     }
 
@@ -156,6 +167,13 @@ public class UtxosController extends WalletFormController implements Initializab
         final List<BlockTransactionHashIndex> spendingUtxos = utxoEntries.stream().map(HashIndexEntry::getHashIndex).collect(Collectors.toList());
         EventManager.get().post(new SendActionEvent(getWalletForm().getWallet(), spendingUtxos));
         Platform.runLater(() -> EventManager.get().post(new SpendUtxoEvent(getWalletForm().getWallet(), spendingUtxos)));
+    }
+
+    public void depositSelected(ActionEvent event) {
+        List<UtxoEntry> utxoEntries = getSelectedUtxos();
+        final List<BlockTransactionHashIndex> spendingUtxos = utxoEntries.stream().map(HashIndexEntry::getHashIndex).collect(Collectors.toList());
+        EventManager.get().post(new DepositActionEvent(getWalletForm().getWallet(), spendingUtxos));
+        Platform.runLater(() -> EventManager.get().post(new DepositSpendUtxoEvent(getWalletForm().getWallet(), spendingUtxos)));
     }
 
     private List<UtxoEntry> getSelectedUtxos() {
