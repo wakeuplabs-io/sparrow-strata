@@ -81,6 +81,12 @@
                 <HelpLabel helpText="Disallow keystores to have derivation paths that match the defaults for other script types and networks."/>
             </Field>
         </Fieldset>
+        <Fieldset inputGrow="SOMETIMES" text="Strata" styleClass="wideLabelFieldSet">
+            <Field text="Disable bridge key verification:">
+                <UnlabeledToggleSwitch fx:id="disableBridgeKeyVerification" />
+                <HelpLabel helpText="If enabled, Sparrow will skip checking the hardcoded bridge key against the authenticated source until the app restarts."/>
+            </Field>
+        </Fieldset>
         <Fieldset inputGrow="SOMETIMES" text="Coin Selection" styleClass="wideLabelFieldSet">
             <Field text="Group by address:">
                 <UnlabeledToggleSwitch fx:id="groupByAddress" />

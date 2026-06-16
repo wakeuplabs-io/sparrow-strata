@@ -2,8 +2,11 @@ package com.sparrowwallet.sparrow.strata;
 
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.EventManager;
+import com.sparrowwallet.sparrow.event.StrataBridgeKeyVerificationUpdatedEvent;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import com.sparrowwallet.sparrow.strata.deposit.DepositController;
+import com.google.common.eventbus.Subscribe;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
@@ -34,6 +37,9 @@ public class StrataController extends WalletFormController implements Initializa
     @FXML
     private StackPane strataContent;
 
+    @FXML
+    private Label bridgeKeyError;
+
     private Node depositPane;
     private DepositController depositController;
     private Node reclaimPane;
@@ -45,9 +51,11 @@ public class StrataController extends WalletFormController implements Initializa
 
     @Override
     public void initializeView() {
+        bridgeKeyError.managedProperty().bind(bridgeKeyError.visibleProperty());
         loadDepositPane();
         loadReclaimPane();
         selectDeposit(null);
+        updateBridgeKeyError();
     }
 
     private void loadDepositPane() {
@@ -89,5 +97,19 @@ public class StrataController extends WalletFormController implements Initializa
                 reclaimToggle.setSelected(true);
             }
         });
+    }
+
+    private void updateBridgeKeyError() {
+        StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
+        StrataBridgeKeyVerificationService.StrataBridgeKeyStatus keyStatus = service.getStatus();
+        boolean showError = keyStatus == StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH
+                || keyStatus == StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE;
+        bridgeKeyError.setVisible(showError);
+        bridgeKeyError.setText(showError ? service.getMessage() : null);
+    }
+
+    @Subscribe
+    public void strataBridgeKeyVerificationUpdated(StrataBridgeKeyVerificationUpdatedEvent event) {
+        Platform.runLater(this::updateBridgeKeyError);
     }
 }

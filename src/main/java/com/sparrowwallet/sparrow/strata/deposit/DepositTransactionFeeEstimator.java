@@ -33,7 +33,7 @@ public final class DepositTransactionFeeEstimator {
     }
 
     private static Transaction buildRepresentativeDepositTransaction() {
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.TESTNET);
+        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.get());
         Script opReturnScript = Sps50Encoder.encodeOpReturnScript(
                 StrataBridgeConstants.DEPOSIT_TX_TYPE,
                 DtHeaderAux.create(0).buildAuxData()

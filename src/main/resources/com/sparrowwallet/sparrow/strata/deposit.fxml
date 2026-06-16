@@ -191,7 +191,7 @@
             <padding>
                 <Insets left="25.0" right="25.0" bottom="25.0" />
             </padding>
-            <HBox AnchorPane.leftAnchor="5" alignment="CENTER_LEFT">
+            <HBox AnchorPane.leftAnchor="5" alignment="CENTER_LEFT" spacing="10">
                 <Label text="Optimize:" styleClass="buttonRowLabel" />
                 <SegmentedButton>
                     <toggleGroup>
@@ -217,6 +217,9 @@
                     </buttons>
                 </SegmentedButton>
                 <HelpLabel fx:id="optimizationHelp" helpText="Determines whether to optimize the transaction for low fees or greater privacy" />
+                <Region style="-fx-pref-width: 5" />
+                <Hyperlink fx:id="depositStatusLink" text="Deposit Status" onAction="#openDepositStatus" />
+                <Hyperlink fx:id="bridgeWithdrawalsLink" text="Bridge Withdrawals" onAction="#openBridgeWithdrawals" />
             </HBox>
             <HBox AnchorPane.rightAnchor="10">
                 <Button fx:id="confirmButton" text="Confirm" defaultButton="true" disable="true" contentDisplay="RIGHT" graphicTextGap="5" onAction="#confirm">

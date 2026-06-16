@@ -19,6 +19,7 @@ import com.sparrowwallet.sparrow.glyphfont.FontAwesome5;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.net.FeeRatesSource;
 import com.sparrowwallet.sparrow.net.MempoolRateSize;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
@@ -150,6 +151,12 @@ public class DepositController extends WalletFormController implements Initializ
     private HelpLabel optimizationHelp;
 
     @FXML
+    private Hyperlink depositStatusLink;
+
+    @FXML
+    private Hyperlink bridgeWithdrawalsLink;
+
+    @FXML
     private Button confirmButton;
 
     private ValidationSupport validationSupport;
@@ -215,9 +222,45 @@ public class DepositController extends WalletFormController implements Initializ
         addValidation();
         initializeAmountFields();
         initializeFeeSection();
+        initializeBridgeLinks();
         StrataBridgeParametersService.getInstance().refresh();
+        StrataBridgeKeyVerificationService.getInstance().refresh();
         updateConfirmButton();
         updateFee();
+    }
+
+    private void initializeBridgeLinks() {
+        updateBridgeLinkVisibility();
+    }
+
+    private void updateBridgeLinks() {
+        updateBridgeLinkVisibility();
+    }
+
+    private void updateBridgeLinkVisibility() {
+        Network network = Network.get();
+        String statusUrl = StrataBridgeConstants.getBridgeStatusUrl(network);
+        String withdrawalUrl = StrataBridgeConstants.getBridgeWithdrawalUrl(network);
+        depositStatusLink.setVisible(statusUrl != null);
+        depositStatusLink.setManaged(statusUrl != null);
+        bridgeWithdrawalsLink.setVisible(withdrawalUrl != null);
+        bridgeWithdrawalsLink.setManaged(withdrawalUrl != null);
+    }
+
+    @FXML
+    public void openDepositStatus(ActionEvent event) {
+        openBridgeUrl(StrataBridgeConstants.getBridgeStatusUrl(Network.get()));
+    }
+
+    @FXML
+    public void openBridgeWithdrawals(ActionEvent event) {
+        openBridgeUrl(StrataBridgeConstants.getBridgeWithdrawalUrl(Network.get()));
+    }
+
+    private void openBridgeUrl(String url) {
+        if(url != null && !url.isBlank()) {
+            AppServices.get().getApplication().getHostServices().showDocument(url);
+        }
     }
 
     private void addValidation() {
@@ -261,7 +304,7 @@ public class DepositController extends WalletFormController implements Initializ
         }
         OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
         if(depositUtxoAmountSats.isEmpty()) {
-            return Optional.of("Unable to fetch deposit denomination from Strata node");
+            return Optional.of("Deposit denomination is not available for this network");
         }
         return DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
     }
@@ -460,7 +503,8 @@ public class DepositController extends WalletFormController implements Initializ
         boolean valid = validationSupport != null && !validationSupport.isInvalid()
                 && depositTo.getText() != null && !depositTo.getText().isBlank()
                 && label.getText() != null && !label.getText().isBlank()
-                && amount.getText() != null && !amount.getText().isBlank();
+                && amount.getText() != null && !amount.getText().isBlank()
+                && StrataBridgeKeyVerificationService.getInstance().isDepositAllowed();
         confirmButton.setDisable(!valid);
     }
 
@@ -518,6 +562,11 @@ public class DepositController extends WalletFormController implements Initializ
 
     @FXML
     public void confirm(ActionEvent event) {
+        if(!StrataBridgeKeyVerificationService.getInstance().isDepositAllowed()) {
+            AppServices.showErrorDialog("Deposit unavailable", StrataBridgeKeyVerificationService.getInstance().getMessage());
+            return;
+        }
+
         DepositDescriptor descriptor = getDepositDescriptor();
         if(descriptor == null) {
             AppServices.showErrorDialog("Invalid deposit", AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
@@ -863,6 +912,15 @@ public class DepositController extends WalletFormController implements Initializ
     @Subscribe
     public void connectionEvent(ConnectionEvent event) {
         StrataBridgeParametersService.getInstance().refresh();
+        StrataBridgeKeyVerificationService.getInstance().refresh();
+        Platform.runLater(this::updateBridgeLinks);
+    }
+
+    @Subscribe
+    public void strataBridgeKeyVerificationUpdated(StrataBridgeKeyVerificationUpdatedEvent event) {
+        Platform.runLater(() -> {
+            updateConfirmButton();
+        });
     }
 
     @Subscribe

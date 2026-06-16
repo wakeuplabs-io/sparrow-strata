@@ -19,6 +19,7 @@ public class StrataRpcClient {
     private static final Gson GSON = new Gson();
 
     private static final String GET_ROLLUP_PARAMS_METHOD = "strata_getRollupParams";
+    private static final String GET_BRIDGE_OPERATOR_PUBKEY_METHOD = "strata_getBridgeOperatorPubkey";
 
     private final HttpClientService httpClientService;
     private final String rpcUrl;
@@ -28,8 +29,29 @@ public class StrataRpcClient {
         this.rpcUrl = rpcUrl;
     }
 
+    // TODO: Wire back into StrataBridgeParametersService when strata_getRollupParams is available on full nodes.
     public OptionalLong getDepositUtxoAmountSats() {
         return getDepositUtxoAmountFromRollupParams();
+    }
+
+    public Optional<String> getBridgeOperatorPubkeyHex() {
+        try {
+            JsonObject result = call(GET_BRIDGE_OPERATOR_PUBKEY_METHOD, List.of());
+            return StrataBridgeKeyParser.parseBridgePubkeyFromResult(result);
+        } catch(StrataRpcException e) {
+            if(e.isMethodNotFound()) {
+                if(log.isDebugEnabled()) {
+                    log.debug("Strata RPC method {} is unavailable at {}", GET_BRIDGE_OPERATOR_PUBKEY_METHOD, rpcUrl);
+                }
+            } else if(log.isDebugEnabled()) {
+                log.debug("Failed to fetch bridge operator pubkey from {}", rpcUrl, e);
+            }
+        } catch(Exception e) {
+            if(log.isDebugEnabled()) {
+                log.debug("Failed to fetch bridge operator pubkey from {}", rpcUrl, e);
+            }
+        }
+        return Optional.empty();
     }
 
     private OptionalLong getDepositUtxoAmountFromRollupParams() {

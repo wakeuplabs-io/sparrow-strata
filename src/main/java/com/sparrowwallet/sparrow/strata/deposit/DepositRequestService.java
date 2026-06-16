@@ -1,12 +1,12 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
-import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.P2TRAddress;
 import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.Transaction;
 import com.sparrowwallet.drongo.wallet.*;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +46,12 @@ public class DepositRequestService {
 
     public DepositRequestResult createWalletTransaction() throws InsufficientFundsException {
         RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.get());
+        byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
+                .getVerifiedBridgeOperatorPubkey()
+                .orElseThrow(() -> new DepositRequestException(
+                        StrataBridgeKeyVerificationService.getInstance().getMessage() != null
+                                ? StrataBridgeKeyVerificationService.getInstance().getMessage()
+                                : "Bridge deposit is unavailable"));
         P2TRAddress bridgeInAddress = DepositRequestLockingScript.createBridgeInAddress(
                 recoveryKeyPair.getXOnlyPublicKey(),
                 bridgeOperatorPubkey,
