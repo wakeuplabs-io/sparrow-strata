@@ -7,5 +7,3 @@ out
 *.log
 build-*.sh
 .DS_Store
-.cursor/
-references/

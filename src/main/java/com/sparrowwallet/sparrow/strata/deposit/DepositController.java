@@ -1295,6 +1295,15 @@ public class DepositController extends WalletFormController implements Initializ
         fiatAmount.refresh();
     }
 
+    @Subscribe
+    @Override
+    public void walletTabsClosed(WalletTabsClosedEvent event) {
+        if(feeRateSection != null && event.getClosedWalletTabData().stream().anyMatch(tabData -> tabData.getWalletForm() == getWalletForm())) {
+            feeRateSection.unregister();
+        }
+        super.walletTabsClosed(event);
+    }
+
     private Long getAmountValueSats(UnitFormat unitFormat, BitcoinUnit bitcoinUnit) {
         if(amount.getText() != null && !amount.getText().isEmpty()) {
             UnitFormat format = unitFormat == null ? UnitFormat.DOT : unitFormat;
