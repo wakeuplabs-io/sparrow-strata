@@ -3,7 +3,6 @@ package com.sparrowwallet.sparrow.strata.deposit;
 import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.Utils;
-import com.sparrowwallet.drongo.wallet.BlockTransaction;
 import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
 import com.sparrowwallet.drongo.wallet.InsufficientFundsException;
 import com.sparrowwallet.drongo.wallet.PresetUtxoSelector;
@@ -23,30 +22,23 @@ import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.drongo.wallet.WalletNodePayment;
 import com.sparrowwallet.drongo.wallet.WalletTransaction;
-import com.sparrowwallet.drongo.protocol.Transaction;
 import com.sparrowwallet.drongo.psbt.PSBT;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.sparrow.*;
 import com.sparrowwallet.sparrow.control.*;
 import com.sparrowwallet.sparrow.event.*;
-import com.sparrowwallet.sparrow.glyphfont.FontAwesome5;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.net.ExchangeSource;
-import com.sparrowwallet.sparrow.net.FeeRatesSource;
-import com.sparrowwallet.sparrow.net.MempoolRateSize;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
 import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
-import com.sparrowwallet.sparrow.wallet.FeeRatesSelection;
 import com.sparrowwallet.sparrow.wallet.OptimizationStrategy;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import javafx.animation.PauseTransition;
-import javafx.animation.Timeline;
 import javafx.application.Platform;
-import javafx.beans.binding.Bindings;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -55,16 +47,11 @@ import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
-import javafx.concurrent.Service;
-import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
-import javafx.scene.Node;
 import javafx.scene.control.*;
-import javafx.scene.layout.VBox;
 import javafx.util.Duration;
-import javafx.util.StringConverter;
 import org.controlsfx.glyphfont.Glyph;
 import org.controlsfx.validation.ValidationResult;
 import org.controlsfx.validation.ValidationSupport;
@@ -197,31 +184,13 @@ public class DepositController extends WalletFormController implements Initializ
 
     private ValidationSupport validationSupport;
 
+    private DepositFeeRateSection feeRateSection;
+
+    private DepositFeePreviewCoordinator previewCoordinator;
+
     private final ObjectProperty<AlpenAddressParseResult> depositAddressProperty = new SimpleObjectProperty<>(null);
 
-    private final SimpleBooleanProperty userFeeSet = new SimpleBooleanProperty(false);
-
-    private final ObjectProperty<FeeRatesSelection> feeRatesSelectionProperty = new SimpleObjectProperty<>(null);
-
-    private boolean updateDefaultFeeRate;
-
-    private DepositFeeService depositFeeService;
-
     private PauseTransition feeUpdatePause;
-
-    private RecoveryKeyPair previewRecoveryKeyPair;
-
-    private DepositDescriptor lastPreviewDescriptor;
-
-    private Long lastPreviewAmountSats;
-
-    private FeeRequestKey lastCompletedFeeRequest;
-
-    private FeeRequestKey inFlightFeeRequest;
-
-    private Long previewAmountSats;
-
-    private int applyingPreviewUpdates;
 
     private final BooleanProperty insufficientInputsProperty = new SimpleBooleanProperty(false);
 
@@ -240,7 +209,7 @@ public class DepositController extends WalletFormController implements Initializ
     private final ChangeListener<String> amountListener = new ChangeListener<>() {
         @Override
         public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
-            if(applyingPreviewUpdates > 0) {
+            if(feeRateSection != null && feeRateSection.getApplyingPreviewUpdates() > 0) {
                 return;
             }
             emptyAmountProperty.set(newValue == null || newValue.isEmpty());
@@ -248,7 +217,9 @@ public class DepositController extends WalletFormController implements Initializ
                 utxoSelectorProperty.setValue(null);
             }
             maxButton.setSelected(false);
-            userFeeSet.set(false);
+            if(feeRateSection != null) {
+                feeRateSection.resetUserFeeSet();
+            }
             Long amountSats = tryParseAmountValueSats();
             if(amountSats != null && amountSats > 0) {
                 setFiatAmount(AppServices.getFiatCurrencyExchangeRate(), amountSats);
@@ -265,46 +236,11 @@ public class DepositController extends WalletFormController implements Initializ
     private final ChangeListener<String> feeListener = new ChangeListener<>() {
         @Override
         public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
-            if(applyingPreviewUpdates > 0) {
+            if(feeRateSection != null && feeRateSection.getApplyingPreviewUpdates() > 0) {
                 return;
             }
             validationSupport.setErrorDecorationEnabled(true);
-            if(newValue == null || newValue.isEmpty()) {
-                userFeeSet.set(false);
-                clearFiatFeeAmount();
-            } else {
-                userFeeSet.set(true);
-                setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), getFeeValueSats());
-            }
-            updateFee();
-        }
-    };
-
-    private final ChangeListener<Number> targetBlocksListener = new ChangeListener<>() {
-        @Override
-        public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue) {
-            Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
-            Integer target = getTargetBlocks();
-
-            if(targetBlocksFeeRates != null) {
-                setFeeRate(targetBlocksFeeRates.get(target));
-                blockTargetFeeRatesChart.select(target);
-            } else {
-                feeRate.setText("Unknown");
-            }
-
-            targetBlocks.setTooltip(new Tooltip("Target inclusion within " + target + " blocks"));
-            userFeeSet.set(false);
-            scheduleUpdateFee();
-        }
-    };
-
-    private final ChangeListener<Number> feeRangeListener = new ChangeListener<>() {
-        @Override
-        public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue) {
-            setFeeRate(getFeeRangeRate());
-            userFeeSet.set(false);
-            scheduleUpdateFee();
+            feeRateSection.onFeeFieldChanged(newValue);
         }
     };
 
@@ -315,9 +251,69 @@ public class DepositController extends WalletFormController implements Initializ
 
     @Override
     public void initializeView() {
+        feeRateSection = new DepositFeeRateSection(new DepositFeeRateSection.DepositFeeControls(
+                feeSelectionToggleGroup, targetBlocksToggle, mempoolSizeToggle, recentBlocksToggle,
+                targetBlocksField, targetBlocks, feeRangeField, feeRange, feeRate, feeRatePriority, feeRatePriorityGlyph,
+                cpfpFeeRate, fee, feeAmountUnit, fiatFeeAmount, blockTargetFeeRatesChart, mempoolSizeFeeRatesChart, recentBlocksView),
+                getWalletForm().getWallet(), this::scheduleUpdateFee);
+        feeRateSection.setFeeTextListener(feeListener);
+        feeRateSection.initialize(Config.get().getBitcoinUnit());
+        feeRateSection.register();
+        fee.textProperty().addListener(feeListener);
+
+        previewCoordinator = new DepositFeePreviewCoordinator(
+                (requestKey, depositLabel, recoveryKeyPair) -> new DepositFeeService(
+                        getWalletForm().getWallet(),
+                        requestKey.descriptor(),
+                        requestKey.amountSats(),
+                        depositLabel,
+                        requestKey.selectionFeeRate(),
+                        requestKey.sliderFeeRate(),
+                        feeRateSection.getMinimumFeeRate(),
+                        AppServices.getMinimumRelayFeeRate(),
+                        requestKey.userFee(),
+                        AppServices.getCurrentBlockHeight(),
+                        Config.get().isGroupByAddress(),
+                        Config.get().isIncludeMempoolOutputs(),
+                        getUtxoSelectors(),
+                        excludedChangeNodes,
+                        getTxoFilters(),
+                        recoveryKeyPair),
+                new DepositFeePreviewCoordinator.Listener() {
+                    @Override
+                    public void onPreviewSucceeded(WalletTransaction walletTransaction, DepositFeeRequestKey requestKey, long amountSats) {
+                        insufficientInputsProperty.set(false);
+                        walletTransactionProperty.setValue(walletTransaction);
+                        applyTransactionDiagramState();
+                        revalidate(amount, amountListener);
+                        feeRateSection.revalidateFeeField(feeListener);
+                        updateConfirmButton();
+                    }
+
+                    @Override
+                    public void onPreviewFailed(boolean insufficientFunds) {
+                        clearWalletTransactionPreview();
+                        insufficientInputsProperty.set(insufficientFunds);
+                        revalidate(amount, amountListener);
+                        feeRateSection.revalidateFeeField(feeListener);
+                        applyTransactionDiagramState();
+                        updateConfirmButton();
+                    }
+
+                    @Override
+                    public void onPreviewInvalidated() {
+                        clearWalletTransactionPreview();
+                    }
+
+                    @Override
+                    public void onCacheHit() {
+                        feeRateSection.setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), feeRateSection.getFeeValueSats());
+                    }
+                },
+                ignored -> buildCurrentFeeRequestKey());
+
         addValidation();
         initializeAmountFields();
-        initializeFeeSection();
         initializeCoinControl();
         initializeBridgeLinks();
         StrataBridgeParametersService.getInstance().refresh();
@@ -376,7 +372,7 @@ public class DepositController extends WalletFormController implements Initializ
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Inputs", tryParseAmountValueSats() != null && insufficientInputsProperty.get())
         ));
         validationSupport.registerValidator(fee, Validator.combine(
-                (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Inputs", userFeeSet.get() && insufficientInputsProperty.get()),
+                (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Inputs", feeRateSection.isUserFeeSet() && insufficientInputsProperty.get()),
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Fee Rate", isInsufficientFeeRate())
         ));
 
@@ -409,14 +405,25 @@ public class DepositController extends WalletFormController implements Initializ
     private void clearFeeBuildMessageListener() {
     }
 
-    private record FeeRequestKey(DepositDescriptor descriptor, long amountSats, double depFeeRate, double userFeeRate, Long userFee,
-                                 String label, OptimizationStrategy optimizationStrategy, int coinControlHash) {
-    }
-
-    private FeeRequestKey buildFeeRequestKey(DepositDescriptor descriptor, long amountSats, double depFeeRate, Long userFee, String depositLabel) {
+    private DepositFeeRequestKey buildFeeRequestKey(DepositDescriptor descriptor, long amountSats, double sliderFeeRate, Long userFee, String depositLabel) {
         OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
         int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes);
-        return new FeeRequestKey(descriptor, amountSats, depFeeRate, getUserFeeRate(), userFee, depositLabel, optimizationStrategy, coinControlHash);
+        return new DepositFeeRequestKey(descriptor, amountSats, sliderFeeRate, feeRateSection.getSelectionFeeRate(), userFee, depositLabel, optimizationStrategy, coinControlHash);
+    }
+
+    private DepositFeeRequestKey buildCurrentFeeRequestKey() {
+        DepositDescriptor descriptor = getDepositDescriptor();
+        Long amountSats = tryParseAmountValueSats();
+        Double sliderFeeRate = feeRateSection.getSliderFeeRate();
+        if(descriptor == null || amountSats == null || sliderFeeRate == null) {
+            return null;
+        }
+        Long userFee = feeRateSection.isUserFeeSet() ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
+        if(feeRateSection.isUserFeeSet() && userFee == null) {
+            return null;
+        }
+        String depositLabel = label.getText() == null || label.getText().isBlank() ? "deposit" : label.getText();
+        return buildFeeRequestKey(descriptor, amountSats, sliderFeeRate, userFee, depositLabel);
     }
 
     private void scheduleUpdateFee() {
@@ -518,97 +525,6 @@ public class DepositController extends WalletFormController implements Initializ
         amountStatus.visibleProperty().bind(insufficientInputsProperty.and(emptyAmountProperty.not()));
     }
 
-    private void initializeFeeSection() {
-        targetBlocksField.managedProperty().bind(targetBlocksField.visibleProperty());
-        targetBlocks.setMin(0);
-        targetBlocks.setMax(TARGET_BLOCKS_RANGE.size() - 1);
-        targetBlocks.setMajorTickUnit(1);
-        targetBlocks.setMinorTickCount(0);
-        targetBlocks.setLabelFormatter(new StringConverter<>() {
-            @Override
-            public String toString(Double object) {
-                String blocks = Integer.toString(TARGET_BLOCKS_RANGE.get(object.intValue()));
-                return (object.intValue() == TARGET_BLOCKS_RANGE.size() - 1) ? blocks + "+" : blocks;
-            }
-
-            @Override
-            public Double fromString(String string) {
-                return (double)TARGET_BLOCKS_RANGE.indexOf(Integer.valueOf(string.replace("+", "")));
-            }
-        });
-        targetBlocks.valueProperty().addListener(targetBlocksListener);
-
-        feeRangeField.managedProperty().bind(feeRangeField.visibleProperty());
-        feeRangeField.visibleProperty().bind(targetBlocksField.visibleProperty().not());
-        feeRange.valueProperty().addListener(feeRangeListener);
-
-        blockTargetFeeRatesChart.managedProperty().bind(blockTargetFeeRatesChart.visibleProperty());
-        blockTargetFeeRatesChart.visibleProperty().bind(Bindings.equal(feeRatesSelectionProperty, FeeRatesSelection.BLOCK_TARGET));
-        blockTargetFeeRatesChart.initialize();
-        Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
-        if(targetBlocksFeeRates != null) {
-            blockTargetFeeRatesChart.update(targetBlocksFeeRates);
-        } else {
-            feeRate.setText("Unknown");
-        }
-
-        mempoolSizeFeeRatesChart.managedProperty().bind(mempoolSizeFeeRatesChart.visibleProperty());
-        mempoolSizeFeeRatesChart.visibleProperty().bind(Bindings.equal(feeRatesSelectionProperty, FeeRatesSelection.MEMPOOL_SIZE));
-        mempoolSizeFeeRatesChart.initialize();
-        Map<Date, Set<MempoolRateSize>> mempoolHistogram = getMempoolHistogram();
-        if(mempoolHistogram != null) {
-            mempoolSizeFeeRatesChart.update(mempoolHistogram);
-        }
-
-        recentBlocksView.managedProperty().bind(recentBlocksView.visibleProperty());
-        recentBlocksView.visibleProperty().bind(Bindings.equal(feeRatesSelectionProperty, FeeRatesSelection.RECENT_BLOCKS));
-        List<BlockSummary> blockSummaries = AppServices.getBlockSummaries().values().stream().sorted().toList();
-        if(!blockSummaries.isEmpty()) {
-            recentBlocksView.update(blockSummaries, AppServices.getNextBlockMedianFeeRate());
-        }
-
-        feeRatesSelectionProperty.addListener((observable, oldValue, newValue) -> {
-            boolean isBlockTargetSelection = (newValue == FeeRatesSelection.BLOCK_TARGET);
-            boolean wasBlockTargetSelection = (oldValue == FeeRatesSelection.BLOCK_TARGET || oldValue == null);
-            targetBlocksField.setVisible(isBlockTargetSelection);
-            if(isBlockTargetSelection) {
-                setTargetBlocks(getTargetBlocks(getFeeRangeRate()));
-                updateFee();
-            } else if(wasBlockTargetSelection) {
-                setFeeRangeRate(getTargetBlocksFeeRates().get(getTargetBlocks()));
-                updateFee();
-            }
-        });
-
-        FeeRatesSelection feeRatesSelection = Config.get().getFeeRatesSelection();
-        feeRatesSelection = (feeRatesSelection == null ? FeeRatesSelection.RECENT_BLOCKS : feeRatesSelection);
-        cpfpFeeRate.managedProperty().bind(cpfpFeeRate.visibleProperty());
-        cpfpFeeRate.setVisible(false);
-        setDefaultFeeRate();
-        feeRatesSelectionProperty.set(feeRatesSelection);
-        feeSelectionToggleGroup.selectToggle(feeRatesSelection == FeeRatesSelection.BLOCK_TARGET ? targetBlocksToggle :
-                (feeRatesSelection == FeeRatesSelection.MEMPOOL_SIZE ? mempoolSizeToggle : recentBlocksToggle));
-        feeSelectionToggleGroup.selectedToggleProperty().addListener((observable, oldValue, newValue) -> {
-            if(newValue != null) {
-                FeeRatesSelection newFeeRatesSelection = (FeeRatesSelection)newValue.getUserData();
-                Config.get().setFeeRatesSelection(newFeeRatesSelection);
-                EventManager.get().post(new FeeRatesSelectionChangedEvent(getWalletForm().getWallet(), newFeeRatesSelection));
-            }
-        });
-
-        fee.setTextFormatter(new CoinTextFormatter(Config.get().getUnitFormat()));
-        fee.textProperty().addListener(feeListener);
-
-        BitcoinUnit unit = getBitcoinUnit(Config.get().getBitcoinUnit());
-        feeAmountUnit.getSelectionModel().select(BitcoinUnit.BTC.equals(unit) ? 0 : 1);
-        feeAmountUnit.valueProperty().addListener((observable, oldValue, newValue) -> {
-            Long value = getFeeValueSats(oldValue);
-            if(value != null) {
-                setFeeValueSats(value);
-            }
-        });
-    }
-
     private void initializeCoinControl() {
         utxoLabelSelectionProperty.addListener((observable, oldValue, newValue) -> {
             maxButton.setText("Max" + newValue);
@@ -629,15 +545,17 @@ public class DepositController extends WalletFormController implements Initializ
         });
 
         walletTransactionProperty.addListener((observable, oldValue, walletTransaction) -> {
-            applyingPreviewUpdates++;
+            feeRateSection.incrementApplyingPreviewUpdates();
             try {
                 if(walletTransaction != null) {
-                    applyWalletTransactionFees(walletTransaction);
+                    feeRateSection.applyPreviewFees(walletTransaction, getWalletForm().getWallet());
+                    if(feeRateSection.isUserFeeSet()) {
+                        feeRateSection.revalidateFeeField(feeListener);
+                    }
                 }
-                setEffectiveFeeRate(walletTransaction);
                 updatePrivacyAnalysis(walletTransaction);
             } finally {
-                applyingPreviewUpdates--;
+                feeRateSection.decrementApplyingPreviewUpdates();
             }
             applyTransactionDiagramState();
             updateConfirmButton();
@@ -704,6 +622,21 @@ public class DepositController extends WalletFormController implements Initializ
         return getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
     }
 
+    private void updatePrivacyAnalysis(WalletTransaction walletTransaction) {
+        if(walletTransaction == null) {
+            privacyAnalysis.setVisible(false);
+            privacyAnalysis.setTooltip(null);
+        } else {
+            privacyAnalysis.setVisible(true);
+            Tooltip tooltip = new Tooltip();
+            tooltip.setShowDelay(new Duration(50));
+            tooltip.setShowDuration(Duration.INDEFINITE);
+            OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
+            tooltip.setGraphic(new DepositPrivacyAnalysisTooltip(walletTransaction, getWalletForm().getWallet(), optimizationStrategy, utxoSelectorProperty.get()));
+            privacyAnalysis.setTooltip(tooltip);
+        }
+    }
+
     private boolean isMaxButtonEnabled() {
         long balanceSats = getAvailableBalanceSats();
         if(balanceSats <= 0) {
@@ -747,11 +680,11 @@ public class DepositController extends WalletFormController implements Initializ
             return false;
         }
 
-        Double feeRate = getFeeRate();
+        Double sliderFeeRate = feeRateSection.getSliderFeeRate();
         long spendableBalance = balanceSats;
         long reservedForFees = 0;
-        if(feeRate != null) {
-            reservedForFees = estimateReservedSatsForDepositFees(feeRate);
+        if(sliderFeeRate != null) {
+            reservedForFees = estimateReservedSatsForDepositFees(sliderFeeRate);
             spendableBalance = Math.max(0, balanceSats - reservedForFees);
         }
 
@@ -782,11 +715,11 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         Wallet wallet = getWalletForm().getWallet();
-        double feeRate = getFeeRate() != null ? getFeeRate() : getFallbackFeeRate();
-        long bridgeOutputSats = amountSatsOrZero() + DepositTransactionFeeEstimator.calculateDepFee(feeRate);
+        double feeRate = feeRateSection.getSliderFeeRate() != null ? feeRateSection.getSliderFeeRate() : getFallbackFeeRate();
+        long bridgeOutputSats = amountSatsOrZero() + DepositFeeRates.calculateDepFee(feeRate);
         // Proxy receive address for output vsize estimation (bridge P2TR address not yet derived)
         long noInputsFee = wallet.getNoInputsFee(List.of(new Payment(wallet.getNode(KeyPurpose.RECEIVE).getAddress(), null, bridgeOutputSats, false)), feeRate);
-        long costOfChange = wallet.getCostOfChange(feeRate, getMinimumFeeRate());
+        long costOfChange = wallet.getCostOfChange(feeRate, feeRateSection.getMinimumFeeRate());
 
         List<UtxoSelector> selectors = new ArrayList<>();
         OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
@@ -818,7 +751,7 @@ public class DepositController extends WalletFormController implements Initializ
         label.setText("");
         depositAddressProperty.set(null);
 
-        applyingPreviewUpdates++;
+        feeRateSection.incrementApplyingPreviewUpdates();
         try {
             amount.textProperty().removeListener(amountListener);
             amount.setText("");
@@ -826,27 +759,26 @@ public class DepositController extends WalletFormController implements Initializ
             emptyAmountProperty.set(true);
             setFiatAmount(null, null);
         } finally {
-            applyingPreviewUpdates--;
+            feeRateSection.decrementApplyingPreviewUpdates();
         }
 
         utxoSelectorProperty.setValue(null);
         txoFilterProperty.setValue(null);
         excludedChangeNodes.clear();
-        resetPreviewRecoveryKey();
+        previewCoordinator.resetRecoveryKey();
         clearWalletTransactionPreview();
         getWalletForm().setCreatedWalletTransaction(null);
 
-        userFeeSet.set(false);
         clearFeeBuildMessageListener();
-        clearFee();
+        feeRateSection.clearFee();
         insufficientInputsProperty.set(false);
 
         if(validationSupport != null) {
             validationSupport.setErrorDecorationEnabled(false);
         }
 
-        cpfpFeeRate.setVisible(false);
-        setDefaultFeeRate();
+        feeRateSection.hideCpfp();
+        feeRateSection.setDefaultFeeRate();
         maxButton.setSelected(false);
         updateOptimizationButtons();
         updateMaxButton();
@@ -867,36 +799,39 @@ public class DepositController extends WalletFormController implements Initializ
 
         DepositDescriptor descriptor = getDepositDescriptor();
         Long amountSats = tryParseAmountValueSats();
-        Double feeRate = getFeeRate();
+        Double sliderFeeRate = feeRateSection.getSliderFeeRate();
 
-        if(descriptor == null || amountSats == null || amountSats <= 0 || feeRate == null) {
+        if(descriptor == null || amountSats == null || amountSats <= 0 || sliderFeeRate == null) {
             if(log.isDebugEnabled() && maxButton.isSelected()) {
                 log.debug("Deposit fee update skipped: descriptor={}, amountSats={}", descriptor != null, amountSats);
             }
-            resetPreviewRecoveryKey();
-            invalidateDepositPreview();
+            previewCoordinator.resetRecoveryKey();
+            previewCoordinator.invalidatePreview();
             insufficientInputsProperty.set(false);
-            if(!userFeeSet.get()) {
-                clearFee();
+            if(!feeRateSection.isUserFeeSet()) {
+                feeRateSection.clearFee();
             }
             updateConfirmButton();
             return;
         }
 
-        if(getDepositAmountValidationError(amountSats).isPresent()) {
-            invalidateDepositPreview();
+        boolean amountValidationFailed = getDepositAmountValidationError(amountSats).isPresent();
+        Long userFee = feeRateSection.isUserFeeSet() ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
+        boolean invalidCustomFee = feeRateSection.isUserFeeSet() && userFee == null;
+
+        if(amountValidationFailed) {
+            previewCoordinator.invalidatePreview();
             insufficientInputsProperty.set(false);
-            if(!userFeeSet.get()) {
-                clearFee();
+            if(!feeRateSection.isUserFeeSet()) {
+                feeRateSection.clearFee();
             }
             applyTransactionDiagramState();
             updateConfirmButton();
             return;
         }
 
-        Long userFee = userFeeSet.get() ? getDepositRequestFeeSats(feeRate) : null;
-        if(userFeeSet.get() && userFee == null) {
-            invalidateDepositPreview();
+        if(invalidCustomFee) {
+            previewCoordinator.invalidatePreview();
             insufficientInputsProperty.set(false);
             applyTransactionDiagramState();
             updateConfirmButton();
@@ -904,136 +839,15 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         String depositLabel = label.getText() == null || label.getText().isBlank() ? "deposit" : label.getText();
-        FeeRequestKey requestKey = buildFeeRequestKey(descriptor, amountSats, feeRate, userFee, depositLabel);
-        if(requestKey.equals(lastCompletedFeeRequest) && Objects.equals(previewAmountSats, amountSats) && walletTransactionProperty.get() != null) {
-            setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), getFeeValueSats());
-            applyTransactionDiagramState();
-            updateConfirmButton();
-            return;
-        }
-        if(depositFeeService != null && depositFeeService.isRunning() && requestKey.equals(inFlightFeeRequest)) {
-            applyTransactionDiagramState();
-            updateConfirmButton();
-            return;
-        }
-
-        if(depositFeeService != null && depositFeeService.isRunning()) {
-            depositFeeService.setIgnoreResult(true);
-            depositFeeService.cancel();
-        }
-
-        syncPreviewRecoveryKey(descriptor, amountSats);
-        startDepositFeeService(requestKey, depositLabel);
-    }
-
-    private boolean matchesCurrentFeeRequest(FeeRequestKey requestKey) {
-        DepositDescriptor descriptor = getDepositDescriptor();
-        Long amountSats = tryParseAmountValueSats();
-        Double feeRate = getFeeRate();
-        if(descriptor == null || amountSats == null || feeRate == null) {
-            return false;
-        }
-        Long userFee = userFeeSet.get() ? getDepositRequestFeeSats(feeRate) : null;
-        if(userFeeSet.get() && userFee == null) {
-            return false;
-        }
-        String depositLabel = label.getText() == null || label.getText().isBlank() ? "deposit" : label.getText();
-        FeeRequestKey current = buildFeeRequestKey(descriptor, amountSats, feeRate, userFee, depositLabel);
-        return current.equals(requestKey);
-    }
-
-    private void startDepositFeeService(FeeRequestKey requestKey, String depositLabel) {
-        inFlightFeeRequest = requestKey;
-        Wallet wallet = getWalletForm().getWallet();
-        depositFeeService = new DepositFeeService(
-                wallet,
-                requestKey.descriptor(),
-                requestKey.amountSats(),
-                depositLabel,
-                requestKey.userFeeRate(),
-                requestKey.depFeeRate(),
-                getMinimumFeeRate(),
-                AppServices.getMinimumRelayFeeRate(),
-                requestKey.userFee(),
-                AppServices.getCurrentBlockHeight(),
-                Config.get().isGroupByAddress(),
-                Config.get().isIncludeMempoolOutputs(),
-                getUtxoSelectors(),
-                excludedChangeNodes,
-                getTxoFilters(),
-                previewRecoveryKeyPair
-        );
-
-        final DepositFeeService currentService = depositFeeService;
-        final FeeRequestKey requestedKey = requestKey;
-        depositFeeService.setOnSucceeded(event -> {
-            if(!currentService.isIgnoreResult() && matchesCurrentFeeRequest(requestedKey)) {
-                WalletTransaction walletTransaction = currentService.getValue();
-                insufficientInputsProperty.set(false);
-                lastCompletedFeeRequest = requestedKey;
-                inFlightFeeRequest = null;
-                previewAmountSats = requestedKey.amountSats();
-                walletTransactionProperty.setValue(walletTransaction);
-                applyTransactionDiagramState();
-                revalidate(amount, amountListener);
-                revalidate(fee, feeListener);
-            }
-            updateConfirmButton();
-        });
-        depositFeeService.setOnFailed(event -> {
-            if(!currentService.isIgnoreResult() && matchesCurrentFeeRequest(requestedKey)) {
-                inFlightFeeRequest = null;
-                lastCompletedFeeRequest = null;
-                clearWalletTransactionPreview();
-                if(event.getSource().getException() instanceof InsufficientFundsException) {
-                    insufficientInputsProperty.set(true);
-                } else {
-                    insufficientInputsProperty.set(false);
-                }
-                revalidate(amount, amountListener);
-                revalidate(fee, feeListener);
-                applyTransactionDiagramState();
-            }
-            updateConfirmButton();
-        });
-
-        depositFeeService.start();
-    }
-
-    private void syncPreviewRecoveryKey(DepositDescriptor descriptor, long amountSats) {
-        if(!Objects.equals(descriptor, lastPreviewDescriptor) || !Objects.equals(amountSats, lastPreviewAmountSats)) {
-            resetPreviewRecoveryKey();
-            lastPreviewDescriptor = descriptor;
-            lastPreviewAmountSats = amountSats;
-        }
-        if(previewRecoveryKeyPair == null) {
-            previewRecoveryKeyPair = RecoveryKeyPair.generate();
-        }
-    }
-
-    private void resetPreviewRecoveryKey() {
-        previewRecoveryKeyPair = null;
-        lastPreviewDescriptor = null;
-        lastPreviewAmountSats = null;
-        lastCompletedFeeRequest = null;
-        inFlightFeeRequest = null;
-        previewAmountSats = null;
+        DepositFeeRequestKey requestKey = buildFeeRequestKey(descriptor, amountSats, sliderFeeRate, userFee, depositLabel);
+        previewCoordinator.requestPreview(descriptor, amountSats, requestKey, false, invalidCustomFee, walletTransactionProperty.get());
+        applyTransactionDiagramState();
+        updateConfirmButton();
     }
 
     private void clearWalletTransactionPreview() {
         walletTransactionProperty.set(null);
         clearTransactionDiagram();
-    }
-
-    private void invalidateDepositPreview() {
-        lastCompletedFeeRequest = null;
-        inFlightFeeRequest = null;
-        previewAmountSats = null;
-        if(depositFeeService != null && depositFeeService.isRunning()) {
-            depositFeeService.setIgnoreResult(true);
-            depositFeeService.cancel();
-        }
-        clearWalletTransactionPreview();
     }
 
     private void clearTransactionDiagram() {
@@ -1043,32 +857,21 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private boolean canDisplayTransactionDiagram() {
-        if(insufficientInputsProperty.get()) {
-            return false;
-        }
-        if(!isValidDepositAddress()) {
-            return false;
-        }
-        if(label.getText() == null || label.getText().isBlank()) {
-            return false;
-        }
-        DepositDescriptor descriptor = getDepositDescriptor();
-        Long amountSats = tryParseAmountValueSats();
-        Double feeRate = getFeeRate();
-        if(descriptor == null || amountSats == null || amountSats <= 0 || feeRate == null) {
-            return false;
-        }
-        if(getDepositAmountValidationError(amountSats).isPresent()) {
-            return false;
-        }
-        if(userFeeSet.get() && getDepositRequestFeeSats(feeRate) == null) {
-            return false;
-        }
-        WalletTransaction walletTransaction = walletTransactionProperty.get();
-        if(walletTransaction == null || !Objects.equals(previewAmountSats, amountSats)) {
-            return false;
-        }
-        return !isInsufficientFeeRate();
+        Double sliderFeeRate = feeRateSection.getSliderFeeRate();
+        Long miningFeeFromTotal = sliderFeeRate != null && feeRateSection.isUserFeeSet()
+                ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
+        return DepositConfirmGate.canDisplayDiagram(new DepositConfirmGate.DepositDiagramState(
+                insufficientInputsProperty.get(),
+                isValidDepositAddress(),
+                label.getText() != null && !label.getText().isBlank(),
+                getDepositDescriptor(),
+                tryParseAmountValueSats(),
+                sliderFeeRate,
+                feeRateSection.isUserFeeSet(),
+                miningFeeFromTotal,
+                walletTransactionProperty.get(),
+                previewCoordinator.getPreviewAmountSats()),
+                AppServices.getMinimumRelayFeeRate());
     }
 
     private void applyTransactionDiagramState() {
@@ -1095,47 +898,21 @@ public class DepositController extends WalletFormController implements Initializ
         return existing.getSelectedUtxos().keySet().equals(updated.getSelectedUtxos().keySet()) && existing.getFee() == updated.getFee();
     }
 
-    private void applyWalletTransactionFees(WalletTransaction walletTransaction) {
-        if(!userFeeSet.get()) {
-            Double feeRate = getFeeRate();
-            if(feeRate != null) {
-                setFeeValueSats(getTotalMiningFeeSats(walletTransaction.getFee(), feeRate));
-            }
-            setFeeRate(walletTransaction.getFeeRate());
-        } else {
-            setTargetBlocks(getTargetBlocks(walletTransaction.getFeeRate()));
-            setFeeRangeRate(walletTransaction.getFeeRate());
-            revalidate(fee, feeListener);
-        }
-    }
-
-    private void clearFee() {
-        applyingPreviewUpdates++;
-        try {
-            fee.textProperty().removeListener(feeListener);
-            fee.setText("");
-            fee.textProperty().addListener(feeListener);
-            clearFiatFeeAmount();
-            userFeeSet.set(false);
-        } finally {
-            applyingPreviewUpdates--;
-        }
-    }
-
     private void updateConfirmButton() {
-        boolean fieldsValid = validationSupport != null && !validationSupport.isInvalid()
-                && depositTo.getText() != null && !depositTo.getText().isBlank()
-                && label.getText() != null && !label.getText().isBlank()
-                && amount.getText() != null && !amount.getText().isBlank()
-                && StrataBridgeKeyVerificationService.getInstance().isDepositAllowed();
-        WalletTransaction walletTransaction = walletTransactionProperty.get();
-        boolean previewReady = walletTransaction != null && !isInsufficientFeeRate();
-        boolean notBuilding = depositFeeService == null || !depositFeeService.isRunning();
-        confirmButton.setDisable(!fieldsValid || !previewReady || !notBuilding);
+        boolean validationInvalid = validationSupport != null && validationSupport.isInvalid();
+        confirmButton.setDisable(!DepositConfirmGate.isConfirmEnabled(new DepositConfirmGate.DepositConfirmState(
+                validationInvalid,
+                depositTo.getText() != null && !depositTo.getText().isBlank(),
+                label.getText() != null && !label.getText().isBlank(),
+                amount.getText() != null && !amount.getText().isBlank(),
+                StrataBridgeKeyVerificationService.getInstance().isDepositAllowed(),
+                walletTransactionProperty.get(),
+                AppServices.getMinimumRelayFeeRate(),
+                previewCoordinator.isRunning())));
     }
 
     public boolean isInsufficientFeeRate() {
-        return walletTransactionProperty.get() != null && walletTransactionProperty.get().getFeeRate() < AppServices.getMinimumRelayFeeRate();
+        return DepositConfirmGate.isInsufficientFeeRate(walletTransactionProperty.get(), AppServices.getMinimumRelayFeeRate());
     }
 
     private void revalidate(TextField field, ChangeListener<String> listener) {
@@ -1146,47 +923,6 @@ public class DepositController extends WalletFormController implements Initializ
         field.setText(amt);
         field.positionCaret(caret);
         field.textProperty().addListener(listener);
-    }
-
-    private void setEffectiveFeeRate(WalletTransaction walletTransaction) {
-        List<BlockTransaction> unconfirmedUtxoTxs = walletTransaction == null ? Collections.emptyList() :
-                walletTransaction.getSelectedUtxos().keySet().stream().filter(ref -> ref.getHeight() <= 0)
-                        .map(ref -> getWalletForm().getWallet().getWalletTransaction(ref.getHash()))
-                        .filter(Objects::nonNull).distinct().collect(Collectors.toList());
-        if(!unconfirmedUtxoTxs.isEmpty() && unconfirmedUtxoTxs.stream().allMatch(blkTx -> blkTx.getFee() != null && blkTx.getFee() > 0)) {
-            long utxoTxFee = unconfirmedUtxoTxs.stream().mapToLong(BlockTransaction::getFee).sum();
-            double utxoTxSize = unconfirmedUtxoTxs.stream().mapToDouble(blkTx -> blkTx.getTransaction().getVirtualSize()).sum();
-            long thisFee = walletTransaction.getFee();
-            double thisSize = walletTransaction.getTransaction().getVirtualSize();
-            double thisRate = thisFee / thisSize;
-            double effectiveRate = (utxoTxFee + thisFee) / (utxoTxSize + thisSize);
-            if(thisRate > effectiveRate) {
-                UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
-                String strEffectiveRate = format.getCurrencyFormat().format(effectiveRate);
-                Tooltip tooltip = new Tooltip("CPFP (Child Pays For Parent)\n" + strEffectiveRate + " sats/vB effective rate");
-                cpfpFeeRate.setTooltip(tooltip);
-                cpfpFeeRate.setVisible(true);
-                cpfpFeeRate.setText(strEffectiveRate + " sats/vB (CPFP)");
-            } else {
-                cpfpFeeRate.setVisible(false);
-            }
-        } else {
-            cpfpFeeRate.setVisible(false);
-        }
-    }
-
-    private void updatePrivacyAnalysis(WalletTransaction walletTransaction) {
-        if(walletTransaction == null) {
-            privacyAnalysis.setVisible(false);
-            privacyAnalysis.setTooltip(null);
-        } else {
-            privacyAnalysis.setVisible(true);
-            Tooltip tooltip = new Tooltip();
-            tooltip.setShowDelay(new Duration(50));
-            tooltip.setShowDuration(Duration.INDEFINITE);
-            tooltip.setGraphic(new PrivacyAnalysisTooltip(walletTransaction));
-            privacyAnalysis.setTooltip(tooltip);
-        }
     }
 
     @FXML
@@ -1249,17 +985,17 @@ public class DepositController extends WalletFormController implements Initializ
         }
     }
 
-    private long estimateReservedSatsForDepositFees(double feeRate) {
-        Long uiFee = getFeeValueSats();
+    private long estimateReservedSatsForDepositFees(double sliderFeeRate) {
+        Long uiFee = feeRateSection.getFeeValueSats();
         if(uiFee != null && uiFee > 0) {
             return uiFee;
         }
 
         Wallet wallet = getWalletForm().getWallet();
-        long depFee = getDepFeeSats(feeRate);
-        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * feeRate);
-        long outputFee = (long)Math.ceil(ESTIMATED_DRT_OUTPUT_VBYTES * feeRate);
-        long changeCost = wallet.getCostOfChange(feeRate, getMinimumFeeRate());
+        long depFee = DepositFeeRates.calculateDepFee(sliderFeeRate);
+        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * sliderFeeRate);
+        long outputFee = (long)Math.ceil(ESTIMATED_DRT_OUTPUT_VBYTES * sliderFeeRate);
+        long changeCost = wallet.getCostOfChange(sliderFeeRate, feeRateSection.getMinimumFeeRate());
         return depFee + inputFee + outputFee + changeCost;
     }
 
@@ -1294,27 +1030,27 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         try {
-            Double feeRate = getFeeRate();
-            if(feeRate == null) {
+            Double sliderFeeRate = feeRateSection.getSliderFeeRate();
+            if(sliderFeeRate == null) {
                 AppServices.showErrorDialog("Unknown fee rate", "Fee rates are not available. Check your connection and try again.");
                 return;
             }
 
-            Long userFee = userFeeSet.get() ? getDepositRequestFeeSats(feeRate) : null;
-            if(userFeeSet.get() && userFee == null) {
+            Long userFee = feeRateSection.isUserFeeSet() ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
+            if(feeRateSection.isUserFeeSet() && userFee == null) {
                 AppServices.showErrorDialog("Invalid fee", "Mining fee must cover the deposit transaction fee.");
                 return;
             }
 
-            double minimumFeeRate = getMinimumFeeRate();
+            double minimumFeeRate = feeRateSection.getMinimumFeeRate();
             Wallet wallet = getWalletForm().getWallet();
             DepositRequestService service = new DepositRequestService(
                     wallet,
                     descriptor,
                     amountSats,
                     label.getText(),
-                    getUserFeeRate(),
-                    feeRate,
+                    feeRateSection.getSelectionFeeRate(),
+                    sliderFeeRate,
                     minimumFeeRate,
                     AppServices.getMinimumRelayFeeRate(),
                     userFee,
@@ -1350,47 +1086,6 @@ public class DepositController extends WalletFormController implements Initializ
         getWalletForm().addWalletTransactionNodes(nodes);
     }
 
-    private long getDepFeeSats(double feeRate) {
-        return DepositTransactionFeeEstimator.calculateDepFee(feeRate);
-    }
-
-    private long getTotalMiningFeeSats(long depositRequestFeeSats, double feeRate) {
-        return depositRequestFeeSats + getDepFeeSats(feeRate);
-    }
-
-    private Long getDepositRequestFeeSats(double feeRate) {
-        Long totalFee = getFeeValueSats();
-        if(totalFee == null) {
-            return null;
-        }
-        long depFee = getDepFeeSats(feeRate);
-        if(totalFee < depFee) {
-            return null;
-        }
-        return totalFee - depFee;
-    }
-
-    private Double getUserFeeRate() {
-        return userFeeSet.get() ? AppServices.getMinimumRelayFeeRate() : getFeeRate();
-    }
-
-    private Double getFeeRate() {
-        if(targetBlocksField.isVisible()) {
-            return getTargetBlocksFeeRates().get(getTargetBlocks());
-        }
-        return getFeeRangeRate();
-    }
-
-    private Double getMinimumFeeRate() {
-        Optional<Double> optMinFeeRate = getTargetBlocksFeeRates().values().stream().min(Double::compareTo);
-        double minRate = optMinFeeRate.orElse(getFallbackFeeRate());
-        Double userFeeRate = getFeeRate();
-        if(userFeeRate != null) {
-            minRate = Math.min(userFeeRate, minRate);
-        }
-        return Math.max(minRate, Transaction.DEFAULT_MIN_RELAY_FEE);
-    }
-
     private BitcoinUnit getBitcoinUnit(BitcoinUnit bitcoinUnit) {
         BitcoinUnit unit = bitcoinUnit;
         if(unit == null || unit.equals(BitcoinUnit.AUTO)) {
@@ -1421,7 +1116,7 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private void setAmountValueSats(long amountValue) {
-        applyingPreviewUpdates++;
+        feeRateSection.incrementApplyingPreviewUpdates();
         try {
             amount.textProperty().removeListener(amountListener);
             UnitFormat unitFormat = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
@@ -1433,7 +1128,7 @@ public class DepositController extends WalletFormController implements Initializ
             setFiatAmount(AppServices.getFiatCurrencyExchangeRate(), amountValue);
             updateConfirmButton();
         } finally {
-            applyingPreviewUpdates--;
+            feeRateSection.decrementApplyingPreviewUpdates();
         }
     }
 
@@ -1444,195 +1139,6 @@ public class DepositController extends WalletFormController implements Initializ
             fiatAmount.setCurrency(null);
             fiatAmount.setBtcRate(0.0);
         }
-    }
-
-    private Long getFeeValueSats() {
-        return getFeeValueSats(feeAmountUnit.getSelectionModel().getSelectedItem());
-    }
-
-    private Long getFeeValueSats(BitcoinUnit bitcoinUnit) {
-        if(fee.getText() != null && !fee.getText().isEmpty()) {
-            UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
-            double fieldValue = Double.parseDouble(fee.getText().replaceAll(Pattern.quote(format.getGroupingSeparator()), "").replaceAll(",", "."));
-            return bitcoinUnit.getSatsValue(fieldValue);
-        }
-        return null;
-    }
-
-    private void setFeeValueSats(long feeValue) {
-        applyingPreviewUpdates++;
-        try {
-            fee.textProperty().removeListener(feeListener);
-            UnitFormat unitFormat = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
-            DecimalFormat df = new DecimalFormat("#.#", unitFormat.getDecimalFormatSymbols());
-            df.setMaximumFractionDigits(8);
-            fee.setText(df.format(feeAmountUnit.getValue().getValue(feeValue)));
-            fee.textProperty().addListener(feeListener);
-            setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), feeValue);
-            fiatFeeAmount.refresh();
-        } finally {
-            applyingPreviewUpdates--;
-        }
-    }
-
-    private void setFiatFeeAmount(CurrencyRate currencyRate, Long amount) {
-        if(amount != null && amount > 0 && currencyRate != null && currencyRate.isAvailable() && Config.get().getExchangeSource() != ExchangeSource.NONE) {
-            fiatFeeAmount.set(currencyRate, amount);
-        }
-    }
-
-    private void clearFiatFeeAmount() {
-        fiatFeeAmount.setValue(-1);
-        fiatFeeAmount.setCurrency(null);
-        fiatFeeAmount.setBtcRate(0.0);
-    }
-
-    private void setDefaultFeeRate() {
-        int defaultTarget = TARGET_BLOCKS_RANGE.get((TARGET_BLOCKS_RANGE.size() / 2) - 1);
-        int index = TARGET_BLOCKS_RANGE.indexOf(defaultTarget);
-        Double defaultRate = getTargetBlocksFeeRates().get(defaultTarget);
-        targetBlocks.setValue(index);
-        blockTargetFeeRatesChart.select(defaultTarget);
-        recentBlocksView.updateFeeRate(defaultRate);
-        setFeeRangeRate(defaultRate);
-        setFeeRate(getFeeRangeRate());
-        if(Network.get().equals(Network.MAINNET) && defaultRate == getFallbackFeeRate()) {
-            updateDefaultFeeRate = true;
-        }
-    }
-
-    private Integer getTargetBlocks() {
-        int index = (int)targetBlocks.getValue();
-        return TARGET_BLOCKS_RANGE.get(index);
-    }
-
-    private Integer getTargetBlocks(double feeRateAmt) {
-        Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
-        int maxTargetBlocks = 1;
-        for(Integer blocks : targetBlocksFeeRates.keySet()) {
-            if(TARGET_BLOCKS_RANGE.contains(blocks)) {
-                maxTargetBlocks = Math.max(maxTargetBlocks, blocks);
-                Double candidate = targetBlocksFeeRates.get(blocks);
-                if(Math.round(feeRateAmt) >= Math.round(candidate)) {
-                    return blocks;
-                }
-            }
-        }
-        return maxTargetBlocks;
-    }
-
-    private void setTargetBlocks(Integer target) {
-        targetBlocks.valueProperty().removeListener(targetBlocksListener);
-        int index = TARGET_BLOCKS_RANGE.indexOf(target);
-        targetBlocks.setValue(index);
-        blockTargetFeeRatesChart.select(target);
-        targetBlocks.setTooltip(new Tooltip("Target inclusion within " + target + " blocks"));
-        targetBlocks.valueProperty().addListener(targetBlocksListener);
-    }
-
-    private Map<Integer, Double> getTargetBlocksFeeRates() {
-        Map<Integer, Double> retrievedFeeRates = AppServices.getTargetBlockFeeRates();
-        if(retrievedFeeRates == null) {
-            retrievedFeeRates = TARGET_BLOCKS_RANGE.stream().collect(Collectors.toMap(java.util.function.Function.identity(), v -> getFallbackFeeRate(),
-                    (u, v) -> { throw new IllegalStateException("Duplicate target blocks"); },
-                    LinkedHashMap::new));
-        }
-        return retrievedFeeRates;
-    }
-
-    private Double getFeeRangeRate() {
-        return feeRange.getFeeRate();
-    }
-
-    private void setFeeRangeRate(Double feeRateAmt) {
-        feeRange.valueProperty().removeListener(feeRangeListener);
-        feeRange.setFeeRate(feeRateAmt);
-        feeRange.valueProperty().addListener(feeRangeListener);
-    }
-
-    private Map<Date, Set<MempoolRateSize>> getMempoolHistogram() {
-        return AppServices.getMempoolHistogram();
-    }
-
-    private void setFeeRate(Double feeRateAmt) {
-        UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
-        feeRate.setText(format.getCurrencyFormat().format(feeRateAmt) + (cpfpFeeRate.isVisible() ? "" : " sats/vB"));
-        setFeeRatePriority(feeRateAmt);
-    }
-
-    private void setFeeRatePriority(Double feeRateAmt) {
-        Map<Integer, Double> targetBlocksFeeRates = getTargetBlocksFeeRates();
-        if(targetBlocksFeeRates.get(Integer.MAX_VALUE) != null) {
-            Double minFeeRate = targetBlocksFeeRates.get(Integer.MAX_VALUE);
-            if(minFeeRate > 1.0 && feeRateAmt < minFeeRate) {
-                feeRatePriority.setText("Below Minimum");
-                feeRatePriority.setTooltip(new Tooltip("Transactions at this fee rate are currently being purged from the default sized mempool"));
-                feeRatePriorityGlyph.setStyle("-fx-text-fill: #a0a1a7cc");
-                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.EXCLAMATION_CIRCLE);
-                return;
-            }
-        }
-
-        Integer blocks = getTargetBlocks(feeRateAmt);
-        if(blocks != null) {
-            if(blocks < FeeRatesSource.BLOCKS_IN_HALF_HOUR) {
-                feeRatePriority.setText("High Priority");
-                feeRatePriority.setTooltip(new Tooltip("Typically confirms within minutes"));
-                feeRatePriorityGlyph.setStyle("-fx-text-fill: #c8416499");
-                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.CIRCLE);
-            } else if(blocks < FeeRatesSource.BLOCKS_IN_HOUR) {
-                feeRatePriority.setText("Medium Priority");
-                feeRatePriority.setTooltip(new Tooltip("Typically confirms within an hour or two"));
-                feeRatePriorityGlyph.setStyle("-fx-text-fill: #fba71b99");
-                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.CIRCLE);
-            } else {
-                feeRatePriority.setText("Low Priority");
-                feeRatePriority.setTooltip(new Tooltip("Typically confirms in a day or longer"));
-                feeRatePriorityGlyph.setStyle("-fx-text-fill: #41a9c999");
-                feeRatePriorityGlyph.setIcon(FontAwesome5.Glyph.CIRCLE);
-            }
-        }
-    }
-
-    @Subscribe
-    public void feeRatesUpdated(FeeRatesUpdatedEvent event) {
-        blockTargetFeeRatesChart.update(event.getTargetBlockFeeRates());
-        blockTargetFeeRatesChart.select(getTargetBlocks());
-        if(targetBlocksField.isVisible()) {
-            setFeeRate(event.getTargetBlockFeeRates().get(getTargetBlocks()));
-        } else {
-            setFeeRatePriority(getFeeRangeRate());
-        }
-        feeRange.updateTrackHighlight();
-
-        if(event.getNextBlockMedianFeeRate() != null) {
-            recentBlocksView.updateFeeRate(event.getNextBlockMedianFeeRate());
-        } else {
-            recentBlocksView.updateFeeRate(event.getTargetBlockFeeRates());
-        }
-
-        if(updateDefaultFeeRate) {
-            if(getFeeRangeRate() != null && Long.valueOf((long)getFallbackFeeRate()).equals(getFeeRangeRate().longValue())) {
-                setDefaultFeeRate();
-            }
-            updateDefaultFeeRate = false;
-        }
-    }
-
-    @Subscribe
-    public void mempoolRateSizesUpdated(MempoolRateSizesUpdatedEvent event) {
-        mempoolSizeFeeRatesChart.update(getMempoolHistogram());
-    }
-
-    @Subscribe
-    public void blockSummary(BlockSummaryEvent event) {
-        Platform.runLater(() -> recentBlocksView.update(AppServices.getBlockSummaries().values().stream().sorted().toList(), AppServices.getNextBlockMedianFeeRate()));
-    }
-
-    @Subscribe
-    public void bitcoinUnitChanged(BitcoinUnitChangedEvent event) {
-        BitcoinUnit unit = getBitcoinUnit(event.getBitcoinUnit());
-        feeAmountUnit.getSelectionModel().select(BitcoinUnit.BTC.equals(unit) ? 0 : 1);
     }
 
     @Subscribe
@@ -1647,7 +1153,7 @@ public class DepositController extends WalletFormController implements Initializ
             }
         }
         fiatAmount.refresh(event.getUnitFormat());
-        fiatFeeAmount.refresh(event.getUnitFormat());
+        feeRateSection.refreshFiatFeeAmount(event.getUnitFormat());
     }
 
     @Subscribe
@@ -1672,18 +1178,6 @@ public class DepositController extends WalletFormController implements Initializ
             updateMaxButton();
             updateFee();
         });
-    }
-
-    @Subscribe
-    public void feeRateSelectionChanged(FeeRatesSelectionChangedEvent event) {
-        if(event.getWallet().equals(getWalletForm().getWallet())) {
-            feeRatesSelectionProperty.set(event.getFeeRateSelection());
-            Toggle toggle = event.getFeeRateSelection() == FeeRatesSelection.BLOCK_TARGET ? targetBlocksToggle :
-                    (event.getFeeRateSelection() == FeeRatesSelection.MEMPOOL_SIZE ? mempoolSizeToggle : recentBlocksToggle);
-            if(feeSelectionToggleGroup.getSelectedToggle() != toggle) {
-                feeSelectionToggleGroup.selectToggle(toggle);
-            }
-        }
     }
 
     @Subscribe
@@ -1805,22 +1299,22 @@ public class DepositController extends WalletFormController implements Initializ
     @Subscribe
     public void fiatCurrencySelected(FiatCurrencySelectedEvent event) {
         if(event.getExchangeSource() == ExchangeSource.NONE) {
-            clearFiatFeeAmount();
+            feeRateSection.clearFiatFeeAmount();
         } else {
-            setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), getFeeValueSats());
+            feeRateSection.setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), feeRateSection.getFeeValueSats());
         }
     }
 
     @Subscribe
     public void exchangeRatesUpdated(ExchangeRatesUpdatedEvent event) {
         setFiatAmount(event.getCurrencyRate(), getAmountValueSats());
-        setFiatFeeAmount(event.getCurrencyRate(), getFeeValueSats());
-        fiatFeeAmount.refresh();
+        feeRateSection.setFiatFeeAmount(event.getCurrencyRate(), feeRateSection.getFeeValueSats());
+        feeRateSection.refreshFiatFeeAmount();
     }
 
     @Subscribe
     public void hideAmountsStatusChanged(HideAmountsStatusEvent event) {
-        fiatFeeAmount.refresh();
+        feeRateSection.refreshFiatFeeAmount();
         fiatAmount.refresh();
     }
 
@@ -1831,129 +1325,5 @@ public class DepositController extends WalletFormController implements Initializ
             return bitcoinUnit.getSatsValue(fieldValue);
         }
         return null;
-    }
-
-    private static class DepositFeeService extends Service<WalletTransaction> {
-        private final DepositRequestService depositRequestService;
-        private boolean ignoreResult;
-
-        public DepositFeeService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label,
-                                 double feeRate, double depFeeRate, double minimumFeeRate, double minRelayFeeRate,
-                                 Long userFee, Integer currentBlockHeight, boolean groupByAddress, boolean includeMempoolOutputs,
-                                 List<UtxoSelector> utxoSelectors, Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFilters,
-                                 RecoveryKeyPair recoveryKeyPair) {
-            this.depositRequestService = new DepositRequestService(wallet, depositDescriptor, amountSats, label,
-                    feeRate, depFeeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight, groupByAddress, includeMempoolOutputs,
-                    utxoSelectors, excludedChangeNodes, txoFilters, recoveryKeyPair);
-        }
-
-        @Override
-        protected Task<WalletTransaction> createTask() {
-            return new Task<>() {
-                @Override
-                protected WalletTransaction call() throws Exception {
-                    try {
-                        updateMessage("Selecting UTXOs...");
-                        return depositRequestService.createWalletTransaction().walletTransaction();
-                    } finally {
-                        updateMessage("");
-                    }
-                }
-            };
-        }
-
-        public boolean isIgnoreResult() {
-            return ignoreResult;
-        }
-
-        public void setIgnoreResult(boolean ignoreResult) {
-            this.ignoreResult = ignoreResult;
-        }
-    }
-
-    private class PrivacyAnalysisTooltip extends VBox {
-        private final List<Label> analysisLabels = new ArrayList<>();
-
-        public PrivacyAnalysisTooltip(WalletTransaction walletTransaction) {
-            List<Payment> payments = walletTransaction.getPayments();
-            List<Payment> userPayments = payments.stream().filter(payment -> payment.getType() != Payment.Type.FAKE_MIX).collect(Collectors.toList());
-            List<WalletNodePayment> walletNodePayments = walletTransaction.getWalletNodePayments();
-            OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
-            boolean fakeMixPresent = payments.stream().anyMatch(payment -> payment.getType() == Payment.Type.FAKE_MIX);
-            boolean roundPaymentAmounts = userPayments.stream().anyMatch(payment -> payment.getAmount() % 100 == 0);
-            boolean mixedAddressTypes = userPayments.stream().anyMatch(payment -> payment.getAddress().getScriptType() != getWalletForm().getWallet().getNode(KeyPurpose.RECEIVE).getAddress().getScriptType());
-            boolean addressReuse = walletNodePayments.stream().anyMatch(walletNodePayment -> !walletNodePayment.getWalletNode().getTransactionOutputs().isEmpty());
-
-            if(optimizationStrategy == OptimizationStrategy.PRIVACY) {
-                if(fakeMixPresent) {
-                    addLabel("Appears as a two person coinjoin", getPlusGlyph());
-                } else {
-                    if(mixedAddressTypes) {
-                        addLabel("Cannot fake coinjoin due to mixed address types", getInfoGlyph());
-                    } else if(userPayments.size() > 1) {
-                        addLabel("Cannot fake coinjoin due to multiple payments", getInfoGlyph());
-                    } else {
-                        if(utxoSelectorProperty.get() instanceof MaxUtxoSelector) {
-                            addLabel("Cannot fake coinjoin with max amount selected", getInfoGlyph());
-                        } else if(utxoSelectorProperty.get() != null) {
-                            addLabel("Cannot fake coinjoin due to coin control", getInfoGlyph());
-                        } else {
-                            addLabel("Cannot fake coinjoin due to insufficient funds", getInfoGlyph());
-                        }
-                    }
-                }
-            }
-
-            if(mixedAddressTypes) {
-                addLabel("Address types different to the wallet indicate external payments", getMinusGlyph());
-            }
-
-            if(roundPaymentAmounts && !fakeMixPresent) {
-                addLabel("Rounded payment amounts indicate external payments", getMinusGlyph());
-            }
-
-            if(addressReuse) {
-                addLabel("Address reuse detected", getMinusGlyph());
-            }
-
-            if(!fakeMixPresent && !mixedAddressTypes && !roundPaymentAmounts) {
-                addLabel("Appears as a possible self transfer", getPlusGlyph());
-            }
-
-            analysisLabels.sort(Comparator.comparingInt(o -> (Integer)o.getGraphic().getUserData()));
-            getChildren().addAll(analysisLabels);
-            setSpacing(5);
-        }
-
-        private void addLabel(String text, Node graphic) {
-            Label label = new Label(text);
-            label.setStyle("-fx-font-size: 11px");
-            label.setGraphic(graphic);
-            analysisLabels.add(label);
-        }
-
-        private static Glyph getPlusGlyph() {
-            Glyph plusGlyph = new Glyph(FontAwesome5.FONT_NAME, FontAwesome5.Glyph.PLUS_CIRCLE);
-            plusGlyph.setUserData(0);
-            plusGlyph.setStyle("-fx-text-fill: rgb(80, 161, 79)");
-            plusGlyph.setFontSize(12);
-            return plusGlyph;
-        }
-
-        private static Glyph getMinusGlyph() {
-            Glyph minusGlyph = new Glyph(FontAwesome5.FONT_NAME, FontAwesome5.Glyph.MINUS_CIRCLE);
-            minusGlyph.setUserData(2);
-            minusGlyph.setStyle("-fx-text-fill: #e06c75");
-            minusGlyph.setFontSize(12);
-            return minusGlyph;
-        }
-
-        private static Glyph getInfoGlyph() {
-            Glyph infoGlyph = new Glyph(FontAwesome5.FONT_NAME, FontAwesome5.Glyph.INFO_CIRCLE);
-            infoGlyph.setUserData(3);
-            infoGlyph.setStyle("-fx-text-fill: -fx-accent");
-            infoGlyph.setFontSize(12);
-            return infoGlyph;
-        }
     }
 }

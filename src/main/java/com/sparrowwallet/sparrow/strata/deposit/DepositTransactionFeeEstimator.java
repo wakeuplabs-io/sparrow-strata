@@ -13,19 +13,26 @@ import java.util.List;
  * Estimates the mining fee for the bridge operator deposit transaction (DT) that spends a DRT.
  * Per the Strata protocol, users pay this fee via extra sats in the DRT bridge-in output; the UI
  * displays it as {@code dep_fee = DT virtual size * fee rate}.
+ * <p>
+ * Virtual size is derived from a fixed representative DT structure. Supported networks currently
+ * share the same bridge-operator pubkey hex in {@link StrataBridgeConstants}; this class performs
+ * no RPC. The vsize is computed lazily on first access and must occur after the application has
+ * configured {@link Network}.
  */
 public final class DepositTransactionFeeEstimator {
-    private static final double DEPOSIT_TX_VIRTUAL_SIZE = computeDepositTransactionVirtualSize();
+    private static class Holder {
+        private static final double DEPOSIT_TX_VIRTUAL_SIZE = computeDepositTransactionVirtualSize();
+    }
 
     private DepositTransactionFeeEstimator() {
     }
 
     public static double getDepositTransactionVirtualSize() {
-        return DEPOSIT_TX_VIRTUAL_SIZE;
+        return Holder.DEPOSIT_TX_VIRTUAL_SIZE;
     }
 
     public static long calculateDepFee(double feeRateSatPerVb) {
-        return (long)Math.floor(DEPOSIT_TX_VIRTUAL_SIZE * feeRateSatPerVb);
+        return (long)Math.floor(getDepositTransactionVirtualSize() * feeRateSatPerVb);
     }
 
     private static double computeDepositTransactionVirtualSize() {
