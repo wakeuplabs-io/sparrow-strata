@@ -1,20 +1,24 @@
 package com.sparrowwallet.sparrow.strata.net;
 
-import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.Network;
-import com.sparrowwallet.sparrow.EventManager;
-import com.sparrowwallet.sparrow.event.StrataBridgeKeyVerificationUpdatedEvent;
 import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class StrataBridgeKeyVerificationServiceTest {
+    @BeforeEach
+    void resetService() {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
+        Network.set(Network.MAINNET);
+    }
+
     @AfterEach
     void clearOverrideUrl() {
         StrataBridgeKeyVerificationService.clearInstanceForTesting();
@@ -30,11 +34,8 @@ class StrataBridgeKeyVerificationServiceTest {
         try(StrataBridgeKeyMockServer server = new StrataBridgeKeyMockServer(hardcoded)) {
             StrataBridgeKeyVerificationService.setVerificationUrlForTesting(server.getUrl());
 
-            Awaiter awaiter = new Awaiter();
-            EventManager.get().register(awaiter);
-
             service.refresh();
-            awaiter.await();
+            awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.VERIFIED);
 
             assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.VERIFIED, service.getStatus());
         }
@@ -48,11 +49,8 @@ class StrataBridgeKeyVerificationServiceTest {
         try(StrataBridgeKeyMockServer server = new StrataBridgeKeyMockServer("00")) {
             StrataBridgeKeyVerificationService.setVerificationUrlForTesting(server.getUrl());
 
-            Awaiter awaiter = new Awaiter();
-            EventManager.get().register(awaiter);
-
             service.refresh();
-            awaiter.await();
+            awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH);
 
             assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH, service.getStatus());
             assertEquals(StrataBridgeConstants.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
@@ -66,17 +64,8 @@ class StrataBridgeKeyVerificationServiceTest {
 
         StrataBridgeKeyVerificationService.setVerificationUrlForTesting("http://127.0.0.1:1/");
 
-        Awaiter awaiter = new Awaiter();
-        EventManager.get().register(awaiter);
-
-        // Ensure the status transitions so we get an event even if the default state is UNAVAILABLE.
-        service.setChecksDisabled(true);
-        awaiter.await();
-
-        Awaiter awaiter2 = new Awaiter();
-        EventManager.get().register(awaiter2);
-        service.setChecksDisabled(false);
-        awaiter2.await();
+        service.refresh();
+        awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE);
 
         assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE, service.getStatus());
         assertEquals(StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
@@ -87,29 +76,23 @@ class StrataBridgeKeyVerificationServiceTest {
         Network.set(Network.TESTNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
-        Awaiter awaiter = new Awaiter();
-        EventManager.get().register(awaiter);
-
         service.setChecksDisabled(true);
-        awaiter.await();
+        awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.CHECKS_DISABLED);
 
         assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.CHECKS_DISABLED, service.getStatus());
         assertNotNull(service.getVerifiedBridgeOperatorPubkey().orElse(null));
     }
 
-    private static class Awaiter {
-        private final CountDownLatch latch = new CountDownLatch(1);
-
-        @Subscribe
-        public void onUpdate(StrataBridgeKeyVerificationUpdatedEvent event) {
-            latch.countDown();
-        }
-
-        void await() throws InterruptedException {
-            if(!latch.await(5, TimeUnit.SECONDS)) {
-                throw new AssertionError("Timed out waiting for bridge key verification update event");
+    private static void awaitStatus(StrataBridgeKeyVerificationService service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus expected)
+            throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while(System.nanoTime() < deadlineNanos) {
+            if(service.getStatus() == expected) {
+                return;
             }
+            Thread.sleep(25);
         }
+        fail("Timed out waiting for bridge key status " + expected + ", last status was " + service.getStatus());
     }
 }
 

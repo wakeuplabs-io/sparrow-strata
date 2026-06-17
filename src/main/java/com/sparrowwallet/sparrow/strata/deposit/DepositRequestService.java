@@ -31,18 +31,27 @@ public class DepositRequestService {
     private final List<UtxoSelector> utxoSelectorsOverride;
     private final Set<WalletNode> excludedChangeNodes;
     private final List<TxoFilter> txoFiltersOverride;
+    private final RecoveryKeyPair recoveryKeyPair;
 
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
                                  double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
                                  boolean groupByAddress, boolean includeMempoolOutputs) {
         this(wallet, depositDescriptor, amountSats, label, feeRate, depFeeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight,
-                groupByAddress, includeMempoolOutputs, null, Set.of(), null);
+                groupByAddress, includeMempoolOutputs, null, Set.of(), null, null);
     }
 
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
                                  double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
                                  boolean groupByAddress, boolean includeMempoolOutputs, List<UtxoSelector> utxoSelectorsOverride,
                                  Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFiltersOverride) {
+        this(wallet, depositDescriptor, amountSats, label, feeRate, depFeeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight,
+                groupByAddress, includeMempoolOutputs, utxoSelectorsOverride, excludedChangeNodes, txoFiltersOverride, null);
+    }
+
+    public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
+                                 double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
+                                 boolean groupByAddress, boolean includeMempoolOutputs, List<UtxoSelector> utxoSelectorsOverride,
+                                 Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFiltersOverride, RecoveryKeyPair recoveryKeyPair) {
         this.wallet = wallet;
         this.depositDescriptor = depositDescriptor;
         this.amountSats = amountSats;
@@ -58,10 +67,11 @@ public class DepositRequestService {
         this.utxoSelectorsOverride = utxoSelectorsOverride;
         this.excludedChangeNodes = excludedChangeNodes == null ? Set.of() : excludedChangeNodes;
         this.txoFiltersOverride = txoFiltersOverride;
+        this.recoveryKeyPair = recoveryKeyPair;
     }
 
     public DepositRequestResult createWalletTransaction() throws InsufficientFundsException {
-        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
+        RecoveryKeyPair recoveryKeyPair = this.recoveryKeyPair != null ? this.recoveryKeyPair : RecoveryKeyPair.generate();
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
                 .orElseThrow(() -> new DepositRequestException(
