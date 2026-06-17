@@ -96,7 +96,7 @@ class DepositConfirmGateTest {
     void diagramHiddenWhenInsufficientInputs() {
         DepositConfirmGate.DepositDiagramState base = validDiagramState(samplePreview);
         assertFalse(DepositConfirmGate.canDisplayDiagram(new DepositConfirmGate.DepositDiagramState(
-                true, base.addressValid(), base.labelPresent(), base.descriptor(), base.amountSats(), base.sliderFeeRate(),
+                true, base.addressValid(), base.labelPresent(), base.amountValid(), base.descriptor(), base.amountSats(), base.sliderFeeRate(),
                 base.userFeeSet(), base.miningFeeFromTotal(), base.preview(), base.previewAmountSats()), MIN_RELAY));
     }
 
@@ -104,7 +104,7 @@ class DepositConfirmGateTest {
     void diagramHiddenWhenPreviewAmountMismatch() {
         DepositConfirmGate.DepositDiagramState base = validDiagramState(samplePreview);
         assertFalse(DepositConfirmGate.canDisplayDiagram(new DepositConfirmGate.DepositDiagramState(
-                base.insufficientInputs(), base.addressValid(), base.labelPresent(), base.descriptor(), base.amountSats(), base.sliderFeeRate(),
+                base.insufficientInputs(), base.addressValid(), base.labelPresent(), base.amountValid(), base.descriptor(), base.amountSats(), base.sliderFeeRate(),
                 base.userFeeSet(), base.miningFeeFromTotal(), base.preview(), 999L), MIN_RELAY));
     }
 
@@ -112,7 +112,7 @@ class DepositConfirmGateTest {
     void diagramHiddenWhenCustomFeeDoesNotCoverDepFee() {
         DepositConfirmGate.DepositDiagramState base = validDiagramState(samplePreview);
         assertFalse(DepositConfirmGate.canDisplayDiagram(new DepositConfirmGate.DepositDiagramState(
-                base.insufficientInputs(), base.addressValid(), base.labelPresent(), base.descriptor(), base.amountSats(), base.sliderFeeRate(),
+                base.insufficientInputs(), base.addressValid(), base.labelPresent(), base.amountValid(), base.descriptor(), base.amountSats(), base.sliderFeeRate(),
                 true, null, base.preview(), base.previewAmountSats()), MIN_RELAY));
     }
 
@@ -129,7 +129,7 @@ class DepositConfirmGateTest {
         try {
             DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
             return new DepositConfirmGate.DepositDiagramState(
-                    false, true, true, descriptor, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS, 2.0,
+                    false, true, true, true, descriptor, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS, 2.0,
                     false, null, preview, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS);
         } catch(Exception e) {
             throw new RuntimeException(e);

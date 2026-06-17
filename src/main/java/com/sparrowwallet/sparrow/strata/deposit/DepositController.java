@@ -303,14 +303,14 @@ public class DepositController extends WalletFormController implements Initializ
                     @Override
                     public void onPreviewInvalidated() {
                         clearWalletTransactionPreview();
+                        applyTransactionDiagramState();
                     }
 
                     @Override
                     public void onCacheHit() {
                         feeRateSection.setFiatFeeAmount(AppServices.getFiatCurrencyExchangeRate(), feeRateSection.getFeeValueSats());
                     }
-                },
-                ignored -> buildCurrentFeeRequestKey());
+                });
 
         addValidation();
         initializeAmountFields();
@@ -409,21 +409,6 @@ public class DepositController extends WalletFormController implements Initializ
         OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
         int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes);
         return new DepositFeeRequestKey(descriptor, amountSats, sliderFeeRate, feeRateSection.getSelectionFeeRate(), userFee, depositLabel, optimizationStrategy, coinControlHash);
-    }
-
-    private DepositFeeRequestKey buildCurrentFeeRequestKey() {
-        DepositDescriptor descriptor = getDepositDescriptor();
-        Long amountSats = tryParseAmountValueSats();
-        Double sliderFeeRate = feeRateSection.getSliderFeeRate();
-        if(descriptor == null || amountSats == null || sliderFeeRate == null) {
-            return null;
-        }
-        Long userFee = feeRateSection.isUserFeeSet() ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
-        if(feeRateSection.isUserFeeSet() && userFee == null) {
-            return null;
-        }
-        String depositLabel = label.getText() == null || label.getText().isBlank() ? "deposit" : label.getText();
-        return buildFeeRequestKey(descriptor, amountSats, sliderFeeRate, userFee, depositLabel);
     }
 
     private void scheduleUpdateFee() {
@@ -857,6 +842,8 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private boolean canDisplayTransactionDiagram() {
+        Long amountSats = tryParseAmountValueSats();
+        boolean amountValid = amountSats != null && getDepositAmountValidationError(amountSats).isEmpty();
         Double sliderFeeRate = feeRateSection.getSliderFeeRate();
         Long miningFeeFromTotal = sliderFeeRate != null && feeRateSection.isUserFeeSet()
                 ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
@@ -864,8 +851,9 @@ public class DepositController extends WalletFormController implements Initializ
                 insufficientInputsProperty.get(),
                 isValidDepositAddress(),
                 label.getText() != null && !label.getText().isBlank(),
+                amountValid,
                 getDepositDescriptor(),
-                tryParseAmountValueSats(),
+                amountSats,
                 sliderFeeRate,
                 feeRateSection.isUserFeeSet(),
                 miningFeeFromTotal,
@@ -883,19 +871,8 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private void updateTransactionDiagram(WalletTransaction walletTransaction) {
-        WalletTransaction existing = transactionDiagram.getWalletTransaction();
-        if(walletTransaction != null && isSameDiagramTransaction(existing, walletTransaction)) {
-            return;
-        }
         transactionDiagram.setOptimizationStrategy((OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData());
         transactionDiagram.update(walletTransaction);
-    }
-
-    private boolean isSameDiagramTransaction(WalletTransaction existing, WalletTransaction updated) {
-        if(existing == null || updated == null) {
-            return false;
-        }
-        return existing.getSelectedUtxos().keySet().equals(updated.getSelectedUtxos().keySet()) && existing.getFee() == updated.getFee();
     }
 
     private void updateConfirmButton() {

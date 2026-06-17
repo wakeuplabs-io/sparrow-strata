@@ -26,6 +26,7 @@ public final class DepositConfirmGate {
             boolean insufficientInputs,
             boolean addressValid,
             boolean labelPresent,
+            boolean amountValid,
             DepositDescriptor descriptor,
             Long amountSats,
             Double sliderFeeRate,
@@ -59,6 +60,9 @@ public final class DepositConfirmGate {
             return false;
         }
         if(!state.labelPresent()) {
+            return false;
+        }
+        if(!state.amountValid()) {
             return false;
         }
         if(state.descriptor() == null || state.amountSats() == null || state.amountSats() <= 0 || state.sliderFeeRate() == null) {

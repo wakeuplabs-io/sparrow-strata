@@ -5,7 +5,6 @@ import com.sparrowwallet.drongo.wallet.WalletTransaction;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 
 import java.util.Objects;
-import java.util.function.Function;
 
 /**
  * Manages async deposit fee preview state and {@link DepositFeeService} lifecycle.
@@ -39,7 +38,6 @@ public class DepositFeePreviewCoordinator {
 
     private final ServiceFactory serviceFactory;
     private final Listener listener;
-    private final Function<DepositFeeRequestKey, DepositFeeRequestKey> currentRequestKeySupplier;
 
     private RecoveryKeyPair previewRecoveryKeyPair;
     private DepositDescriptor lastPreviewDescriptor;
@@ -49,11 +47,9 @@ public class DepositFeePreviewCoordinator {
     private Long previewAmountSats;
     private DepositFeeService depositFeeService;
 
-    public DepositFeePreviewCoordinator(ServiceFactory serviceFactory, Listener listener,
-                                        Function<DepositFeeRequestKey, DepositFeeRequestKey> currentRequestKeySupplier) {
+    public DepositFeePreviewCoordinator(ServiceFactory serviceFactory, Listener listener) {
         this.serviceFactory = serviceFactory;
         this.listener = listener;
-        this.currentRequestKeySupplier = currentRequestKeySupplier;
     }
 
     public Long getPreviewAmountSats() {
@@ -105,11 +101,6 @@ public class DepositFeePreviewCoordinator {
         return new UpdateResult(UpdateOutcome.STARTED, requestKey);
     }
 
-    public boolean matchesCurrentRequest(DepositFeeRequestKey requestKey) {
-        DepositFeeRequestKey current = currentRequestKeySupplier.apply(requestKey);
-        return current != null && current.equals(requestKey);
-    }
-
     public void invalidatePreview() {
         invalidatePreview(true);
     }
@@ -149,25 +140,31 @@ public class DepositFeePreviewCoordinator {
 
     private void startService(DepositFeeRequestKey requestKey, String depositLabel) {
         inFlightFeeRequest = requestKey;
+        previewAmountSats = null;
         depositFeeService = serviceFactory.create(requestKey, depositLabel, previewRecoveryKeyPair);
 
         final DepositFeeService currentService = depositFeeService;
         final DepositFeeRequestKey requestedKey = requestKey;
         depositFeeService.setOnSucceeded(event -> {
-            if(!currentService.isIgnoreResult() && matchesCurrentRequest(requestedKey)) {
+            if(!currentService.isIgnoreResult() && isActiveInFlightRequest(requestedKey)) {
                 insufficientInputsSucceeded(currentService.getValue(), requestedKey);
             }
         });
         depositFeeService.setOnFailed(event -> {
-            if(!currentService.isIgnoreResult() && matchesCurrentRequest(requestedKey)) {
+            if(!currentService.isIgnoreResult() && isActiveInFlightRequest(requestedKey)) {
                 inFlightFeeRequest = null;
                 lastCompletedFeeRequest = null;
+                previewAmountSats = null;
                 boolean insufficientFunds = event.getSource().getException() instanceof InsufficientFundsException;
                 listener.onPreviewFailed(insufficientFunds);
             }
         });
 
         depositFeeService.start();
+    }
+
+    private boolean isActiveInFlightRequest(DepositFeeRequestKey requestKey) {
+        return requestKey.equals(inFlightFeeRequest);
     }
 
     private void insufficientInputsSucceeded(WalletTransaction walletTransaction, DepositFeeRequestKey requestedKey) {
