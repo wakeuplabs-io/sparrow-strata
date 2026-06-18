@@ -112,7 +112,10 @@ public class StrataController extends WalletFormController implements Initializa
     @Subscribe
     public void depositAction(DepositActionEvent event) {
         if(event.getWallet().equals(getWalletForm().getWallet())) {
-            Platform.runLater(() -> selectDeposit(null));
+            selectDeposit(null);
+            if(event.getUtxos() != null && !event.getUtxos().isEmpty()) {
+                depositController.applySelectedUtxos(event.getUtxos());
+            }
         }
     }
 

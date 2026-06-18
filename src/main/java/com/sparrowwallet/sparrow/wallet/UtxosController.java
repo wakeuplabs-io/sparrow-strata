@@ -172,8 +172,7 @@ public class UtxosController extends WalletFormController implements Initializab
     public void depositSelected(ActionEvent event) {
         List<UtxoEntry> utxoEntries = getSelectedUtxos();
         final List<BlockTransactionHashIndex> spendingUtxos = utxoEntries.stream().map(HashIndexEntry::getHashIndex).collect(Collectors.toList());
-        Platform.runLater(() -> EventManager.get().post(new DepositActionEvent(getWalletForm().getWallet(), spendingUtxos)));
-        Platform.runLater(() -> EventManager.get().post(new DepositSpendUtxoEvent(getWalletForm().getWallet(), spendingUtxos)));
+        EventManager.get().post(new DepositActionEvent(getWalletForm().getWallet(), spendingUtxos));
     }
 
     private List<UtxoEntry> getSelectedUtxos() {

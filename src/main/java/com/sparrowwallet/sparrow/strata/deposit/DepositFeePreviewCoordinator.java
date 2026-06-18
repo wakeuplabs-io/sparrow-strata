@@ -60,6 +60,14 @@ public class DepositFeePreviewCoordinator {
         return depositFeeService != null && depositFeeService.isRunning();
     }
 
+    public void cancelRunningPreview() {
+        if(depositFeeService != null && depositFeeService.isRunning()) {
+            depositFeeService.setIgnoreResult(true);
+            depositFeeService.cancel();
+        }
+        inFlightFeeRequest = null;
+    }
+
     public UpdateResult requestPreview(DepositDescriptor descriptor, long amountSats, DepositFeeRequestKey requestKey,
                                        boolean amountValidationFailed, boolean invalidCustomFee,
                                        WalletTransaction currentPreview) {

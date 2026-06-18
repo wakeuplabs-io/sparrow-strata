@@ -19,7 +19,7 @@ public class SparrowWallet {
     public static final String APP_ID = "sparrow";
     public static final String APP_NAME = "Sparrow";
     public static final String APP_VERSION = "2.5.3";
-    public static final String APP_VERSION_SUFFIX = "";
+    public static final String APP_VERSION_SUFFIX = "-strata";
     public static final String APP_HOME_PROPERTY = "sparrow.home";
     public static final String NETWORK_ENV_PROPERTY = "SPARROW_NETWORK";
     public static final String JPACKAGE_APP_PATH = "jpackage.app-path";

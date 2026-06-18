@@ -4,7 +4,6 @@ import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
-import com.sparrowwallet.drongo.wallet.InsufficientFundsException;
 import com.sparrowwallet.drongo.wallet.PresetUtxoSelector;
 import com.sparrowwallet.drongo.wallet.UtxoSelector;
 import com.sparrowwallet.drongo.wallet.BnBUtxoSelector;
@@ -402,9 +401,6 @@ public class DepositController extends WalletFormController implements Initializ
         amount.textProperty().addListener(amountListener);
     }
 
-    private void clearFeeBuildMessageListener() {
-    }
-
     private DepositFeeRequestKey buildFeeRequestKey(DepositDescriptor descriptor, long amountSats, double sliderFeeRate, Long userFee, String depositLabel) {
         OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
         int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes);
@@ -754,7 +750,6 @@ public class DepositController extends WalletFormController implements Initializ
         clearWalletTransactionPreview();
         getWalletForm().setCreatedWalletTransaction(null);
 
-        clearFeeBuildMessageListener();
         feeRateSection.clearFee();
         insufficientInputsProperty.set(false);
 
@@ -997,63 +992,16 @@ public class DepositController extends WalletFormController implements Initializ
         }
 
         WalletTransaction walletTransaction = walletTransactionProperty.get();
-        if(walletTransaction != null && !isInsufficientFeeRate()) {
-            addWalletTransactionNodes(walletTransaction);
-            getWalletForm().setCreatedWalletTransaction(walletTransaction);
-            PSBT psbt = walletTransaction.createPSBT();
-            DepositPsbtOrdering.align(psbt, walletTransaction);
-            EventManager.get().post(new ViewPSBTEvent(confirmButton.getScene().getWindow(), label.getText(), null, psbt));
+        if(walletTransaction == null || isInsufficientFeeRate()) {
+            AppServices.showErrorDialog("Deposit preview unavailable", "Fee preview is not ready. Check the form and try again.");
             return;
         }
 
-        try {
-            Double sliderFeeRate = feeRateSection.getSliderFeeRate();
-            if(sliderFeeRate == null) {
-                AppServices.showErrorDialog("Unknown fee rate", "Fee rates are not available. Check your connection and try again.");
-                return;
-            }
-
-            Long userFee = feeRateSection.isUserFeeSet() ? feeRateSection.resolveMiningFeeFromTotal(sliderFeeRate) : null;
-            if(feeRateSection.isUserFeeSet() && userFee == null) {
-                AppServices.showErrorDialog("Invalid fee", "Mining fee must cover the deposit transaction fee.");
-                return;
-            }
-
-            double minimumFeeRate = feeRateSection.getMinimumFeeRate();
-            Wallet wallet = getWalletForm().getWallet();
-            DepositRequestService service = new DepositRequestService(
-                    wallet,
-                    descriptor,
-                    amountSats,
-                    label.getText(),
-                    feeRateSection.getSelectionFeeRate(),
-                    sliderFeeRate,
-                    minimumFeeRate,
-                    AppServices.getMinimumRelayFeeRate(),
-                    userFee,
-                    AppServices.getCurrentBlockHeight(),
-                    Config.get().isGroupByAddress(),
-                    Config.get().isIncludeMempoolOutputs(),
-                    getUtxoSelectors(),
-                    excludedChangeNodes,
-                    getTxoFilters()
-            );
-
-            DepositRequestService.DepositRequestResult result = service.createWalletTransaction();
-            addWalletTransactionNodes(result.walletTransaction());
-            getWalletForm().setCreatedWalletTransaction(result.walletTransaction());
-            PSBT psbt = result.walletTransaction().createPSBT();
-            DepositPsbtOrdering.align(psbt, result.walletTransaction());
-            EventManager.get().post(new ViewPSBTEvent(confirmButton.getScene().getWindow(), label.getText(), null, psbt));
-        } catch(InsufficientFundsException e) {
-            AppServices.showErrorDialog("Insufficient funds", e.getMessage());
-        } catch(DepositRequestException e) {
-            log.error("Failed to create deposit request transaction", e);
-            AppServices.showErrorDialog("Deposit failed", e.getMessage());
-        } catch(IllegalStateException e) {
-            log.error("Failed to create deposit request transaction", e);
-            AppServices.showErrorDialog("Deposit unavailable", e.getMessage());
-        }
+        addWalletTransactionNodes(walletTransaction);
+        getWalletForm().setCreatedWalletTransaction(walletTransaction);
+        PSBT psbt = walletTransaction.createPSBT();
+        DepositPsbtOrdering.align(psbt, walletTransaction);
+        EventManager.get().post(new ViewPSBTEvent(confirmButton.getScene().getWindow(), label.getText(), null, psbt));
     }
 
     private void addWalletTransactionNodes(WalletTransaction walletTransaction) {
@@ -1205,12 +1153,11 @@ public class DepositController extends WalletFormController implements Initializ
         return unspentUtxos.isEmpty();
     }
 
-    @Subscribe
-    public void depositSpendUtxos(DepositSpendUtxoEvent event) {
-        if(event.getUtxos() != null && !event.getUtxos().isEmpty() && event.getWallet().equals(getWalletForm().getWallet())) {
-            utxoSelectorProperty.set(new PresetUtxoSelector(event.getUtxos(), false, false));
+    public void applySelectedUtxos(List<BlockTransactionHashIndex> utxos) {
+        if(utxos != null && !utxos.isEmpty()) {
+            utxoSelectorProperty.set(new PresetUtxoSelector(utxos, false, false));
             txoFilterProperty.set(null);
-            long balance = event.getUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+            long balance = utxos.stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
             applyMaxAmountFromBalance(balance, true);
             updateOptimizationButtons();
             updateMaxButton();
@@ -1298,8 +1245,13 @@ public class DepositController extends WalletFormController implements Initializ
     @Subscribe
     @Override
     public void walletTabsClosed(WalletTabsClosedEvent event) {
-        if(feeRateSection != null && event.getClosedWalletTabData().stream().anyMatch(tabData -> tabData.getWalletForm() == getWalletForm())) {
-            feeRateSection.unregister();
+        if(event.getClosedWalletTabData().stream().anyMatch(tabData -> tabData.getWalletForm() == getWalletForm())) {
+            if(previewCoordinator != null) {
+                previewCoordinator.cancelRunningPreview();
+            }
+            if(feeRateSection != null) {
+                feeRateSection.unregister();
+            }
         }
         super.walletTabsClosed(event);
     }

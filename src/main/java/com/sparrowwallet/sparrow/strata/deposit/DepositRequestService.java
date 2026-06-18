@@ -117,7 +117,9 @@ public class DepositRequestService {
         WalletTransaction walletTransaction = wallet.createWalletTransaction(params);
         WalletTransaction orderedTransaction = DepositOutputOrdering.reorder(walletTransaction, opReturnScript);
 
-        log.info("Built deposit request transaction with recovery public key {}", Utils.bytesToHex(recoveryKeyPair.getXOnlyPublicKey()));
+        if(log.isDebugEnabled()) {
+            log.debug("Built deposit request transaction with recovery public key {}", Utils.bytesToHex(recoveryKeyPair.getXOnlyPublicKey()));
+        }
         return new DepositRequestResult(orderedTransaction, recoveryKeyPair);
     }
 
