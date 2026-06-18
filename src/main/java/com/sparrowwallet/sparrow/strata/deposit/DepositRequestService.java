@@ -7,6 +7,7 @@ import com.sparrowwallet.drongo.wallet.*;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,6 +72,10 @@ public class DepositRequestService {
     }
 
     public DepositRequestResult createWalletTransaction() throws InsufficientFundsException {
+        StrataBridgeParametersService bridgeParameters = StrataBridgeParametersService.getInstance();
+        byte[] magicBytes = bridgeParameters.getMagicBytes();
+        int recoveryDelay = bridgeParameters.getRecoveryDelay();
+
         RecoveryKeyPair recoveryKeyPair = this.recoveryKeyPair != null ? this.recoveryKeyPair : RecoveryKeyPair.generate();
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
@@ -81,12 +86,12 @@ public class DepositRequestService {
         P2TRAddress bridgeInAddress = DepositRequestLockingScript.createBridgeInAddress(
                 recoveryKeyPair.getXOnlyPublicKey(),
                 bridgeOperatorPubkey,
-                StrataBridgeConstants.RECOVER_DELAY
+                recoveryDelay
         );
 
         DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKeyPair.getXOnlyPublicKey(), depositDescriptor.encodeToBytes());
-        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData());
-        byte[] opReturnPayload = Sps50Encoder.encodeTag(headerAux.buildAuxData());
+        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), magicBytes);
+        byte[] opReturnPayload = Sps50Encoder.encodeTag(headerAux.buildAuxData(), magicBytes);
 
         long depFee = DepositTransactionFeeEstimator.calculateDepFee(depFeeRate);
         Payment payment = new Payment(bridgeInAddress, label, amountSats + depFee, false);

@@ -29,9 +29,32 @@ public class StrataRpcClient {
         this.rpcUrl = rpcUrl;
     }
 
-    // TODO: Wire back into StrataBridgeParametersService when strata_getRollupParams is available on full nodes.
     public OptionalLong getDepositUtxoAmountSats() {
-        return getDepositUtxoAmountFromRollupParams();
+        Optional<StrataRollupParams> params = getRollupParams();
+        if(params.isEmpty()) {
+            return OptionalLong.empty();
+        }
+        return params.get().getDepositAmountSats();
+    }
+
+    public Optional<StrataRollupParams> getRollupParams() {
+        try {
+            JsonObject result = call(GET_ROLLUP_PARAMS_METHOD, List.of());
+            return StrataRollupParamsParser.parse(result);
+        } catch(StrataRpcException e) {
+            if(e.isMethodNotFound()) {
+                if(log.isDebugEnabled()) {
+                    log.debug("Strata RPC method {} is unavailable at {}", GET_ROLLUP_PARAMS_METHOD, rpcUrl);
+                }
+            } else if(log.isDebugEnabled()) {
+                log.debug("Failed to fetch rollup params from {}", rpcUrl, e);
+            }
+        } catch(Exception e) {
+            if(log.isDebugEnabled()) {
+                log.debug("Failed to fetch rollup params from {}", rpcUrl, e);
+            }
+        }
+        return Optional.empty();
     }
 
     public Optional<String> getBridgeOperatorPubkeyHex() {
@@ -52,26 +75,6 @@ public class StrataRpcClient {
             }
         }
         return Optional.empty();
-    }
-
-    private OptionalLong getDepositUtxoAmountFromRollupParams() {
-        try {
-            JsonObject result = call(GET_ROLLUP_PARAMS_METHOD, List.of());
-            return StrataDepositDenominationParser.parseDepositAmountFromRollupParams(result);
-        } catch(StrataRpcException e) {
-            if(e.isMethodNotFound()) {
-                if(log.isDebugEnabled()) {
-                    log.debug("Strata RPC method {} is unavailable at {}", GET_ROLLUP_PARAMS_METHOD, rpcUrl);
-                }
-            } else if(log.isDebugEnabled()) {
-                log.debug("Failed to fetch rollup params from {}", rpcUrl, e);
-            }
-        } catch(Exception e) {
-            if(log.isDebugEnabled()) {
-                log.debug("Failed to fetch rollup params from {}", rpcUrl, e);
-            }
-        }
-        return OptionalLong.empty();
     }
 
     private JsonObject call(String method, List<Object> params) throws Exception {

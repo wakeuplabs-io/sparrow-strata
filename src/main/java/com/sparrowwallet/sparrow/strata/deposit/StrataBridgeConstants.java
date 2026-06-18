@@ -8,6 +8,7 @@ import java.util.OptionalLong;
 
 public final class StrataBridgeConstants {
     public static final byte[] MAGIC_BYTES = "ALPN".getBytes(StandardCharsets.US_ASCII);
+    public static final byte[] TESTNET_MAGIC_BYTES = "alpn".getBytes(StandardCharsets.US_ASCII);
     public static final int BRIDGE_V1_SUBPROTOCOL_ID = 2;
     public static final int DEPOSIT_REQUEST_TX_TYPE = 0;
     public static final int DEPOSIT_TX_TYPE = 1;
@@ -43,6 +44,13 @@ public final class StrataBridgeConstants {
             return OptionalLong.of(DEPOSIT_UTXO_AMOUNT_SATS);
         }
         return OptionalLong.empty();
+    }
+
+    public static byte[] getMagicBytesFallback(Network network) {
+        if(network == Network.TESTNET || network == Network.SIGNET) {
+            return TESTNET_MAGIC_BYTES;
+        }
+        return MAGIC_BYTES;
     }
 
     public static String getStrataRpcUrl(Network network) {
