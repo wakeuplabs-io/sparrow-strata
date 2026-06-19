@@ -4,14 +4,24 @@ import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.ScriptChunk;
 import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
 
+import java.util.Arrays;
 import java.util.List;
 
 public final class Sps50Encoder {
-    private static final int MIN_TAG_LEN = 6;
+    private static final int MODERN_MIN_TAG_LEN = 6;
+    private static final int LEGACY_MIN_TAG_LEN = 4;
     private static final int MAX_AUX_LEN = 74;
-    private static final int MAX_OP_RETURN_LEN = MIN_TAG_LEN + MAX_AUX_LEN;
+    private static final int MAX_OP_RETURN_LEN = MODERN_MIN_TAG_LEN + MAX_AUX_LEN;
 
     private Sps50Encoder() {
+    }
+
+    /**
+     * Signet/testnet bridge nodes currently expect the legacy tag: magic + recovery_pk + raw EVM
+     * destination, with the bridge-in P2TR output at index 0 and OP_RETURN at index 1.
+     */
+    public static boolean usesLegacyTagFormat(byte[] magicBytes) {
+        return Arrays.equals(magicBytes, StrataBridgeConstants.TESTNET_MAGIC_BYTES);
     }
 
     public static Script encodeOpReturnScript(byte[] auxData) {
@@ -51,11 +61,21 @@ public final class Sps50Encoder {
             throw new DepositRequestException("SPS-50 magic bytes must be exactly 4 bytes");
         }
 
-        byte[] tag = new byte[MIN_TAG_LEN + auxData.length];
+        if(txType == StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE && usesLegacyTagFormat(magicBytes)) {
+            byte[] tag = new byte[LEGACY_MIN_TAG_LEN + auxData.length];
+            System.arraycopy(magicBytes, 0, tag, 0, magicBytes.length);
+            System.arraycopy(auxData, 0, tag, LEGACY_MIN_TAG_LEN, auxData.length);
+            if(tag.length > MAX_OP_RETURN_LEN) {
+                throw new DepositRequestException("SPS-50 tag exceeds maximum OP_RETURN length");
+            }
+            return tag;
+        }
+
+        byte[] tag = new byte[MODERN_MIN_TAG_LEN + auxData.length];
         System.arraycopy(magicBytes, 0, tag, 0, magicBytes.length);
         tag[4] = (byte)StrataBridgeConstants.BRIDGE_V1_SUBPROTOCOL_ID;
         tag[5] = (byte)txType;
-        System.arraycopy(auxData, 0, tag, 6, auxData.length);
+        System.arraycopy(auxData, 0, tag, MODERN_MIN_TAG_LEN, auxData.length);
         if(tag.length > MAX_OP_RETURN_LEN) {
             throw new DepositRequestException("SPS-50 tag exceeds maximum OP_RETURN length");
         }

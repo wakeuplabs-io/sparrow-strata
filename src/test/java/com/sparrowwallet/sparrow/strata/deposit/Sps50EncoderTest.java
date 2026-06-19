@@ -5,6 +5,7 @@ import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
 import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -32,13 +33,14 @@ class Sps50EncoderTest {
     void encodesDepositRequestTagWithLowercaseAlpnMagic() {
         byte[] recoveryPk = Utils.hexToBytes(RECOVERY_PK);
         DepositDescriptor descriptor = DepositDescriptor.create(AlpenConstants.ALPEN_EE_ACCT_SERIAL, Utils.hexToBytes(SUBJECT));
-        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryPk, descriptor.encodeToBytes());
+        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryPk, descriptor.getDestSubject());
         byte[] magicBytes = "alpn".getBytes(StandardCharsets.US_ASCII);
 
         byte[] tag = Sps50Encoder.encodeTag(headerAux.buildAuxData(), magicBytes);
 
         assertArrayEquals(magicBytes, new byte[] {tag[0], tag[1], tag[2], tag[3]});
-        assertEquals(StrataBridgeConstants.BRIDGE_V1_SUBPROTOCOL_ID, tag[4]);
-        assertEquals(StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE, tag[5]);
+        assertEquals(4 + headerAux.buildAuxData().length, tag.length);
+        assertArrayEquals(recoveryPk, Arrays.copyOfRange(tag, 4, 36));
+        assertArrayEquals(descriptor.getDestSubject(), Arrays.copyOfRange(tag, 36, tag.length));
     }
 }

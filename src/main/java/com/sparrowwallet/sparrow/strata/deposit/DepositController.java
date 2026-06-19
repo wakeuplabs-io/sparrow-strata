@@ -71,7 +71,6 @@ import static com.sparrowwallet.sparrow.AppServices.*;
 
 public class DepositController extends WalletFormController implements Initializable {
     private static final Logger log = LoggerFactory.getLogger(DepositController.class);
-    private static final long ESTIMATED_DRT_OUTPUT_VBYTES = 120;
 
     @FXML
     private TextField depositTo;
@@ -226,7 +225,7 @@ public class DepositController extends WalletFormController implements Initializ
                 fiatAmount.setText("");
             }
             updateConfirmButton();
-            revalidate(amount, amountListener);
+            revalidateAmount();
             applyTransactionDiagramState();
             scheduleUpdateFee();
         }
@@ -284,8 +283,8 @@ public class DepositController extends WalletFormController implements Initializ
                         insufficientInputsProperty.set(false);
                         walletTransactionProperty.setValue(walletTransaction);
                         applyTransactionDiagramState();
-                        revalidate(amount, amountListener);
-                        feeRateSection.revalidateFeeField(feeListener);
+                        revalidateAmount();
+                        revalidateFee();
                         updateConfirmButton();
                     }
 
@@ -293,8 +292,8 @@ public class DepositController extends WalletFormController implements Initializ
                     public void onPreviewFailed(boolean insufficientFunds) {
                         clearWalletTransactionPreview();
                         insufficientInputsProperty.set(insufficientFunds);
-                        revalidate(amount, amountListener);
-                        feeRateSection.revalidateFeeField(feeListener);
+                        revalidateAmount();
+                        revalidateFee();
                         applyTransactionDiagramState();
                         updateConfirmButton();
                     }
@@ -314,20 +313,12 @@ public class DepositController extends WalletFormController implements Initializ
         addValidation();
         initializeAmountFields();
         initializeCoinControl();
-        initializeBridgeLinks();
+        updateBridgeLinkVisibility();
         StrataBridgeParametersService.getInstance().refresh();
         StrataBridgeKeyVerificationService.getInstance().refresh();
         updateConfirmButton();
         updateMaxButton();
         updateFee();
-    }
-
-    private void initializeBridgeLinks() {
-        updateBridgeLinkVisibility();
-    }
-
-    private void updateBridgeLinks() {
-        updateBridgeLinkVisibility();
     }
 
     private void updateBridgeLinkVisibility() {
@@ -376,8 +367,8 @@ public class DepositController extends WalletFormController implements Initializ
         ));
 
         insufficientInputsProperty.addListener((observable, oldValue, newValue) -> {
-            revalidate(amount, amountListener);
-            revalidate(fee, feeListener);
+            revalidateAmount();
+            revalidateFee();
             applyTransactionDiagramState();
             updateConfirmButton();
         });
@@ -388,7 +379,7 @@ public class DepositController extends WalletFormController implements Initializ
         });
         depositTo.textProperty().addListener((observable, oldValue, newValue) -> {
             validationSupport.setErrorDecorationEnabled(true);
-            syncDepositAddressProperty(newValue);
+            updateDepositAddressProperty(newValue);
             updateConfirmButton();
             updateMaxButton();
             scheduleUpdateFee();
@@ -439,23 +430,35 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private ValidationResult validateDepositAddress(Control control, String value) {
+        DepositAddressEvaluation evaluation = evaluateDepositAddress(value);
+        depositAddressProperty.set(evaluation.result());
+        if(evaluation.errorMessage() != null) {
+            return ValidationResult.fromError(control, evaluation.errorMessage());
+        }
+        return new ValidationResult();
+    }
+
+    private record DepositAddressEvaluation(AlpenAddressParseResult result, String errorMessage) {
+    }
+
+    private DepositAddressEvaluation evaluateDepositAddress(String value) {
         if(value == null || value.isBlank()) {
-            depositAddressProperty.set(null);
-            return new ValidationResult();
+            return new DepositAddressEvaluation(null, null);
         }
 
         try {
-            AlpenAddressParseResult result = AlpenAddressParser.parse(value, Network.get());
-            depositAddressProperty.set(result);
-            return new ValidationResult();
+            return new DepositAddressEvaluation(AlpenAddressParser.parse(value, Network.get()), null);
         } catch(IllegalArgumentException e) {
-            depositAddressProperty.set(null);
             String message = e.getMessage();
             if(message == null || message.isBlank() || "Deposit address is required".equals(message)) {
                 message = AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE;
             }
-            return ValidationResult.fromError(control, message);
+            return new DepositAddressEvaluation(null, message);
         }
+    }
+
+    private void updateDepositAddressProperty(String value) {
+        depositAddressProperty.set(evaluateDepositAddress(value).result());
     }
 
     public DepositDescriptor getDepositDescriptor() {
@@ -463,31 +466,8 @@ public class DepositController extends WalletFormController implements Initializ
         return result == null ? null : result.getDepositDescriptor();
     }
 
-    private void syncDepositAddressProperty(String value) {
-        if(value == null || value.isBlank()) {
-            depositAddressProperty.set(null);
-            return;
-        }
-
-        try {
-            depositAddressProperty.set(AlpenAddressParser.parse(value, Network.get()));
-        } catch(IllegalArgumentException e) {
-            depositAddressProperty.set(null);
-        }
-    }
-
     private boolean isValidDepositAddress() {
-        String value = depositTo.getText();
-        if(value == null || value.isBlank()) {
-            return false;
-        }
-
-        try {
-            AlpenAddressParser.parse(value, Network.get());
-            return true;
-        } catch(IllegalArgumentException e) {
-            return false;
-        }
+        return depositAddressProperty.get() != null;
     }
 
     private void initializeAmountFields() {
@@ -531,7 +511,7 @@ public class DepositController extends WalletFormController implements Initializ
                 if(walletTransaction != null) {
                     feeRateSection.applyPreviewFees(walletTransaction, getWalletForm().getWallet());
                     if(feeRateSection.isUserFeeSet()) {
-                        feeRateSection.revalidateFeeField(feeListener);
+                        revalidateFee();
                     }
                 }
                 updatePrivacyAnalysis(walletTransaction);
@@ -887,14 +867,16 @@ public class DepositController extends WalletFormController implements Initializ
         return DepositConfirmGate.isInsufficientFeeRate(walletTransactionProperty.get(), AppServices.getMinimumRelayFeeRate());
     }
 
-    private void revalidate(TextField field, ChangeListener<String> listener) {
-        field.textProperty().removeListener(listener);
-        String amt = field.getText();
-        int caret = field.getCaretPosition();
-        field.setText(amt + "0");
-        field.setText(amt);
-        field.positionCaret(caret);
-        field.textProperty().addListener(listener);
+    private void revalidateAmount() {
+        if(validationSupport != null) {
+            validationSupport.revalidate(amount);
+        }
+    }
+
+    private void revalidateFee() {
+        if(validationSupport != null) {
+            validationSupport.revalidate(fee);
+        }
     }
 
     @FXML
@@ -966,7 +948,12 @@ public class DepositController extends WalletFormController implements Initializ
         Wallet wallet = getWalletForm().getWallet();
         long depFee = DepositFeeRates.calculateDepFee(sliderFeeRate);
         long inputFee = (long)Math.ceil(wallet.getInputVbytes() * sliderFeeRate);
-        long outputFee = (long)Math.ceil(ESTIMATED_DRT_OUTPUT_VBYTES * sliderFeeRate);
+        DepositDescriptor descriptor = getDepositDescriptor();
+        if(descriptor == null) {
+            descriptor = DepositDrtOutputVbytesEstimator.conservativeDescriptorForEstimate();
+        }
+        long outputVbytes = DepositDrtOutputVbytesEstimator.estimateOutputVbytes(descriptor);
+        long outputFee = (long)Math.ceil(outputVbytes * sliderFeeRate);
         long changeCost = wallet.getCostOfChange(sliderFeeRate, feeRateSection.getMinimumFeeRate());
         return depFee + inputFee + outputFee + changeCost;
     }
@@ -1085,7 +1072,7 @@ public class DepositController extends WalletFormController implements Initializ
     public void connectionEvent(ConnectionEvent event) {
         StrataBridgeParametersService.getInstance().refresh();
         StrataBridgeKeyVerificationService.getInstance().refresh();
-        Platform.runLater(this::updateBridgeLinks);
+        Platform.runLater(this::updateBridgeLinkVisibility);
     }
 
     @Subscribe
@@ -1098,7 +1085,7 @@ public class DepositController extends WalletFormController implements Initializ
     @Subscribe
     public void strataBridgeParametersUpdated(StrataBridgeParametersUpdatedEvent event) {
         Platform.runLater(() -> {
-            revalidate(amount, amountListener);
+            revalidateAmount();
             updateConfirmButton();
             updateMaxButton();
             updateFee();

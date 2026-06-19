@@ -18,6 +18,7 @@ class DepositTransactionFeeEstimatorTest {
 
     @AfterEach
     void tearDown() {
+        DepositTransactionFeeEstimator.clearCacheForTesting();
         Network.set(Network.MAINNET);
     }
 
@@ -55,5 +56,13 @@ class DepositTransactionFeeEstimatorTest {
     void calculatesDepFeeFromFeeRate() {
         double vsize = DepositTransactionFeeEstimator.getDepositTransactionVirtualSize();
         assertEquals((long)Math.floor(vsize * 5.0), DepositTransactionFeeEstimator.calculateDepFee(5.0));
+    }
+
+    @Test
+    void uiDepFeeMatchesDepositTransactionEstimate() {
+        double feeRate = 5.0;
+        assertEquals(
+                DepositTransactionFeeEstimator.calculateDepFee(feeRate),
+                DepositFeeRates.calculateDepFee(feeRate));
     }
 }

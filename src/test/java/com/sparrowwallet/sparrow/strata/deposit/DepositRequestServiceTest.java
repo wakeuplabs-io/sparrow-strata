@@ -2,9 +2,11 @@ package com.sparrowwallet.sparrow.strata.deposit;
 
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
+import com.sparrowwallet.drongo.address.P2TRAddress;
 import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
 import com.sparrowwallet.drongo.protocol.Sha256Hash;
 import com.sparrowwallet.drongo.protocol.Transaction;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.drongo.wallet.BlockTransaction;
 import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
 import com.sparrowwallet.drongo.wallet.PresetUtxoSelector;
@@ -28,6 +30,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DepositRequestServiceTest {
@@ -44,6 +47,7 @@ class DepositRequestServiceTest {
     @AfterEach
     void tearDown() {
         StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(false);
+        StrataBridgeParametersService.clearParametersForTesting();
         Network.set(Network.MAINNET);
     }
 
@@ -88,7 +92,7 @@ class DepositRequestServiceTest {
         Wallet wallet = createWalletWithTwoUtxos();
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         double feeRate = 2.0;
-        long expectedBridgeOutput = DEPOSIT_AMOUNT + DepositTransactionFeeEstimator.calculateDepFee(feeRate);
+        long expectedBridgeOutput = DEPOSIT_AMOUNT + DepositFeeRates.calculateDepFee(feeRate);
 
         DepositRequestService service = new DepositRequestService(
                 wallet,
@@ -121,6 +125,52 @@ class DepositRequestServiceTest {
                 .orElseThrow();
         assertEquals(0L, opReturnOutput.getTransactionOutput().getValue());
         assertEquals(ScriptOpCodes.OP_RETURN, opReturnOutput.getTransactionOutput().getScript().getChunks().get(0).getOpcode());
+    }
+
+    @Test
+    void usesBridgeParametersRecoveryDelayForBridgeInAddress() throws Exception {
+        Wallet wallet = createWalletWithTwoUtxos();
+        DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
+        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
+        byte[] recoveryPk = recoveryKeyPair.getXOnlyPublicKey();
+        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.MAINNET);
+
+        StrataBridgeParametersService.setParametersForTesting(
+                StrataBridgeConstants.MAGIC_BYTES, DEPOSIT_AMOUNT, 504);
+
+        DepositRequestService service = new DepositRequestService(
+                wallet,
+                descriptor,
+                DEPOSIT_AMOUNT,
+                "deposit",
+                2.0,
+                2.0,
+                1.0,
+                1.0,
+                null,
+                100,
+                false,
+                false,
+                null,
+                Set.of(),
+                null,
+                recoveryKeyPair
+        );
+
+        WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
+        WalletTransaction.PaymentOutput bridgeOutput = walletTransaction.getOutputs().stream()
+                .filter(WalletTransaction.PaymentOutput.class::isInstance)
+                .map(WalletTransaction.PaymentOutput.class::cast)
+                .findFirst()
+                .orElseThrow();
+
+        P2TRAddress expectedAddress = DepositRequestLockingScript.createBridgeInAddress(
+                recoveryPk, bridgeOperatorPubkey, StrataBridgeParametersService.getInstance().getRecoveryDelay());
+        P2TRAddress defaultDelayAddress = DepositRequestLockingScript.createBridgeInAddress(
+                recoveryPk, bridgeOperatorPubkey, StrataBridgeConstants.RECOVER_DELAY);
+
+        assertNotEquals(defaultDelayAddress.getAddress(), expectedAddress.getAddress());
+        assertEquals(expectedAddress.getAddress(), bridgeOutput.getPayment().getAddress().toString());
     }
 
     private static Wallet createWalletWithTwoUtxos() throws ImportException {

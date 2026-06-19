@@ -89,11 +89,14 @@ public class DepositRequestService {
                 recoveryDelay
         );
 
-        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKeyPair.getXOnlyPublicKey(), depositDescriptor.encodeToBytes());
+        byte[] destinationBytes = Sps50Encoder.usesLegacyTagFormat(magicBytes)
+                ? depositDescriptor.getDestSubject()
+                : depositDescriptor.encodeToBytes();
+        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKeyPair.getXOnlyPublicKey(), destinationBytes);
         Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), magicBytes);
         byte[] opReturnPayload = Sps50Encoder.encodeTag(headerAux.buildAuxData(), magicBytes);
 
-        long depFee = DepositTransactionFeeEstimator.calculateDepFee(depFeeRate);
+        long depFee = DepositFeeRates.calculateDepFee(depFeeRate);
         Payment payment = new Payment(bridgeInAddress, label, amountSats + depFee, false);
         List<Payment> payments = List.of(payment);
         List<UtxoSelector> utxoSelectors = utxoSelectorsOverride != null && !utxoSelectorsOverride.isEmpty()
@@ -120,7 +123,7 @@ public class DepositRequestService {
         );
 
         WalletTransaction walletTransaction = wallet.createWalletTransaction(params);
-        WalletTransaction orderedTransaction = DepositOutputOrdering.reorder(walletTransaction, opReturnScript);
+        WalletTransaction orderedTransaction = DepositOutputOrdering.reorder(walletTransaction, opReturnScript, magicBytes);
 
         if(log.isDebugEnabled()) {
             log.debug("Built deposit request transaction with recovery public key {}", Utils.bytesToHex(recoveryKeyPair.getXOnlyPublicKey()));

@@ -33,8 +33,8 @@ public final class StrataBridgeConstants {
     // Bridge key verification URL is intentionally hardcoded in code (not config/params).
     // TODO: Update this before release.
     private static final String BRIDGE_KEY_VERIFICATION_URL = "http://127.0.0.1:8765";
-    private static final String TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX = "89f96f834e39766f97e245d70b27236681f741ae51c117df19761af7cb2f657e";
-    private static final String MAINNET_BRIDGE_OPERATOR_PUBKEY_HEX = "89f96f834e39766f97e245d70b27236681f741ae51c117df19761af7cb2f657e";
+    private static final String TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX = "50eaad3a98150e584555f1e4a479be2d8ccd8927a4ec3df075d3c65161f47295";
+    private static final String MAINNET_BRIDGE_OPERATOR_PUBKEY_HEX = "50eaad3a98150e584555f1e4a479be2d8ccd8927a4ec3df075d3c65161f47295";
 
     private StrataBridgeConstants() {
     }

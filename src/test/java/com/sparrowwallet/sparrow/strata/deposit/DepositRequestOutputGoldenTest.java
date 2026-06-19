@@ -57,6 +57,21 @@ class DepositRequestOutputGoldenTest {
     Network.set(Network.MAINNET);
   }
 
+  /**
+   * Working alpen-cli testnet deposit {@code 3982ccc8…} with {@code bridge_pubkey} from live config.
+   */
+  @Test
+  void cliTestnetDepositBridgeScriptUsesConfigOperatorKey() {
+    Network.set(Network.TESTNET);
+    byte[] recoveryPk = Utils.hexToBytes("1e5d27860127d89ceed37603a1a732c5f60eeacce28b61a8a53c503de2914616");
+    byte[] bridgeInternalKey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.TESTNET);
+    Script bridgeInScript = DepositRequestLockingScript.createLockingScript(recoveryPk, bridgeInternalKey, 1008);
+    assertEquals(
+        "5120ba179213c2177c3e2164e58af5c822976f5196f487c26cb161e9f36c29558456",
+        Utils.bytesToHex(bridgeInScript.getProgram()),
+        "Bridge-in script must match working alpen-cli testnet deposit tx 3982ccc8…");
+  }
+
   @Test
   void depositRequestOutputsMatchReferenceVectors() {
     byte[] recoveryPk = Utils.hexToBytes(RECOVERY_PK_HEX);

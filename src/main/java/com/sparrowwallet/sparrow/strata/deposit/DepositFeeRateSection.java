@@ -314,17 +314,7 @@ public class DepositFeeRateSection {
             applyingPreviewUpdates--;
         }
     }
-  
-    public void revalidateFeeField(ChangeListener<String> feeListener) {
-        controls.fee().textProperty().removeListener(feeListener);
-        String text = controls.fee().getText();
-        int caret = controls.fee().getCaretPosition();
-        controls.fee().setText(text + "0");
-        controls.fee().setText(text);
-        controls.fee().positionCaret(caret);
-        controls.fee().textProperty().addListener(feeListener);
-    }
-  
+
     public void clearFee() {
         applyingPreviewUpdates++;
         try {

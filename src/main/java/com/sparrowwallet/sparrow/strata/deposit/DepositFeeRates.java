@@ -39,6 +39,10 @@ public final class DepositFeeRates {
         return totalFeeSats - depFeeSats;
     }
 
+    /**
+     * Bridge-in output fee component ({@code dep_fee}): mining fee to settle the operator deposit
+     * transaction within {@code takeback_delay} blocks ({@code DT virtual size × fee rate}).
+     */
     public static long calculateDepFee(double sliderFeeRate) {
         return DepositTransactionFeeEstimator.calculateDepFee(sliderFeeRate);
     }

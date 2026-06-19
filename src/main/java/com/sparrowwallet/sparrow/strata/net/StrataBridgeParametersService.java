@@ -44,6 +44,24 @@ public class StrataBridgeParametersService {
         rpcUrlForTesting = url;
     }
 
+    public static void setParametersForTesting(byte[] magicBytes, Long depositUtxoAmountSats, Integer recoveryDelay) {
+        getInstance().apply(
+                magicBytes,
+                depositUtxoAmountSats,
+                recoveryDelay,
+                Network.get(),
+                false,
+                true);
+    }
+
+    public static void clearParametersForTesting() {
+        if(instance != null) {
+            instance.magicBytes = null;
+            instance.depositUtxoAmountSats = null;
+            instance.recoveryDelay = null;
+        }
+    }
+
     public OptionalLong getDepositUtxoAmountSats() {
         return depositUtxoAmountSats == null ? OptionalLong.empty() : OptionalLong.of(depositUtxoAmountSats);
     }
@@ -65,12 +83,15 @@ public class StrataBridgeParametersService {
         }
 
         Network network = Network.get();
-        applyFallback(network);
-
         String rpcUrl = rpcUrlForTesting != null ? rpcUrlForTesting : StrataBridgeConstants.getStrataRpcUrl(network);
         if(rpcUrl == null) {
+            applyFallback(network, true);
             refreshInProgress.set(false);
             return;
+        }
+
+        if(depositUtxoAmountSats == null) {
+            applyFallback(network, false);
         }
 
         Schedulers.io().scheduleDirect(() -> {
@@ -78,13 +99,13 @@ public class StrataBridgeParametersService {
                 StrataRpcClient client = new StrataRpcClient(AppServices.getHttpClientService(), rpcUrl);
                 client.getRollupParams().ifPresentOrElse(
                         params -> applyRollupParams(params, network),
-                        () -> applyFallback(network)
+                        () -> applyFallback(network, true)
                 );
             } catch(Exception e) {
                 if(log.isWarnEnabled()) {
                     log.warn("Failed to fetch Strata rollup params from {}", rpcUrl, e);
                 }
-                applyFallback(network);
+                applyFallback(network, true);
             } finally {
                 refreshInProgress.set(false);
             }
@@ -96,21 +117,21 @@ public class StrataBridgeParametersService {
         Long resolvedDeposit = params.getDepositAmountSats().orElse(
                 StrataBridgeConstants.getDepositUtxoAmountSats(network).orElse(StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS));
         int resolvedRecoveryDelay = params.getRecoveryDelay().orElse(StrataBridgeConstants.RECOVER_DELAY);
-        apply(resolvedMagic, resolvedDeposit, resolvedRecoveryDelay, network, false);
+        apply(resolvedMagic, resolvedDeposit, resolvedRecoveryDelay, network, false, true);
     }
 
-    private void applyFallback(Network network) {
+    private void applyFallback(Network network, boolean postEvent) {
         OptionalLong amount = StrataBridgeConstants.getDepositUtxoAmountSats(network);
         byte[] fallbackMagic = StrataBridgeConstants.getMagicBytesFallback(network);
         if(amount.isPresent()) {
-            apply(fallbackMagic, amount.getAsLong(), StrataBridgeConstants.RECOVER_DELAY, network, true);
+            apply(fallbackMagic, amount.getAsLong(), StrataBridgeConstants.RECOVER_DELAY, network, true, postEvent);
         } else {
-            apply(null, null, StrataBridgeConstants.RECOVER_DELAY, network, true);
+            apply(null, null, StrataBridgeConstants.RECOVER_DELAY, network, true, postEvent);
         }
     }
 
     private void apply(byte[] newMagicBytes, Long newDepositUtxoAmountSats, int newRecoveryDelay,
-                       Network network, boolean fallback) {
+                       Network network, boolean fallback, boolean postEvent) {
         boolean changed = !Arrays.equals(this.magicBytes, newMagicBytes)
                 || !java.util.Objects.equals(this.depositUtxoAmountSats, newDepositUtxoAmountSats)
                 || !java.util.Objects.equals(this.recoveryDelay, newRecoveryDelay);
@@ -133,6 +154,8 @@ public class StrataBridgeParametersService {
             }
         }
 
-        EventManager.get().post(new StrataBridgeParametersUpdatedEvent(newDepositUtxoAmountSats));
+        if(postEvent) {
+            EventManager.get().post(new StrataBridgeParametersUpdatedEvent(newDepositUtxoAmountSats));
+        }
     }
 }

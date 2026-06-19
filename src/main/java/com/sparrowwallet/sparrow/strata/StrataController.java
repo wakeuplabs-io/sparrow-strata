@@ -4,6 +4,7 @@ import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.EventManager;
 import com.sparrowwallet.sparrow.event.DepositActionEvent;
 import com.sparrowwallet.sparrow.event.StrataBridgeKeyVerificationUpdatedEvent;
+import com.sparrowwallet.sparrow.event.WalletTabsClosedEvent;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import com.sparrowwallet.sparrow.strata.deposit.DepositController;
@@ -122,5 +123,16 @@ public class StrataController extends WalletFormController implements Initializa
     @Subscribe
     public void strataBridgeKeyVerificationUpdated(StrataBridgeKeyVerificationUpdatedEvent event) {
         Platform.runLater(this::updateBridgeKeyError);
+    }
+
+    @Subscribe
+    @Override
+    public void walletTabsClosed(WalletTabsClosedEvent event) {
+        if(event.getClosedWalletTabData().stream().anyMatch(tabData -> tabData.getWalletForm() == getWalletForm())) {
+            if(depositController != null) {
+                EventManager.get().unregister(depositController);
+            }
+        }
+        super.walletTabsClosed(event);
     }
 }

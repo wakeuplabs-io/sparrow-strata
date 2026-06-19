@@ -13,7 +13,14 @@ public final class DepositOutputOrdering {
     private DepositOutputOrdering() {
     }
 
-    public static WalletTransaction reorder(WalletTransaction walletTransaction, Script opReturnScript) {
+    public static WalletTransaction reorder(WalletTransaction walletTransaction, Script opReturnScript, byte[] magicBytes) {
+        if(Sps50Encoder.usesLegacyTagFormat(magicBytes)) {
+            return reorderLegacy(walletTransaction, opReturnScript);
+        }
+        return reorderModern(walletTransaction, opReturnScript);
+    }
+
+    private static WalletTransaction reorderModern(WalletTransaction walletTransaction, Script opReturnScript) {
         Transaction original = walletTransaction.getTransaction();
         Transaction transaction = new Transaction();
         transaction.setVersion(original.getVersion());
@@ -49,6 +56,54 @@ public final class DepositOutputOrdering {
             TransactionOutput newOutput = transaction.addOutput(originalOutput.getValue(), originalOutput.getScript());
             reorderedOutputs.add(copyOutput(output, newOutput));
         }
+
+        for(WalletTransaction.Output output : changeOutputs) {
+            TransactionOutput originalOutput = output.getTransactionOutput();
+            TransactionOutput newOutput = transaction.addOutput(originalOutput.getValue(), originalOutput.getScript());
+            reorderedOutputs.add(copyOutput(output, newOutput));
+        }
+
+        return new WalletTransaction(walletTransaction.getWallet(), transaction, walletTransaction.getUtxoSelectors(), walletTransaction.getSelectedUtxoSets(),
+                walletTransaction.getPayments(), reorderedOutputs, walletTransaction.getChangeMap(), walletTransaction.getFee());
+    }
+
+    private static WalletTransaction reorderLegacy(WalletTransaction walletTransaction, Script opReturnScript) {
+        Transaction original = walletTransaction.getTransaction();
+        Transaction transaction = new Transaction();
+        transaction.setVersion(original.getVersion());
+        transaction.setLocktime(original.getLocktime());
+
+        for(TransactionInput input : original.getInputs()) {
+            TransactionInput newInput = transaction.addInput(input.getOutpoint().getHash(), input.getOutpoint().getIndex(), input.getScriptSig(), input.getWitness());
+            newInput.setSequenceNumber(input.getSequenceNumber());
+        }
+
+        List<WalletTransaction.Output> paymentOutputs = new ArrayList<>();
+        List<WalletTransaction.Output> changeOutputs = new ArrayList<>();
+        for(WalletTransaction.Output output : walletTransaction.getOutputs()) {
+            if(output instanceof WalletTransaction.NonAddressOutput) {
+                continue;
+            } else if(output instanceof WalletTransaction.PaymentOutput paymentOutput) {
+                paymentOutputs.add(paymentOutput);
+            } else if(output instanceof WalletTransaction.ChangeOutput changeOutput) {
+                changeOutputs.add(changeOutput);
+            } else if(output instanceof WalletTransaction.SilentPaymentChangeOutput silentPaymentChangeOutput) {
+                changeOutputs.add(silentPaymentChangeOutput);
+            } else {
+                paymentOutputs.add(output);
+            }
+        }
+
+        List<WalletTransaction.Output> reorderedOutputs = new ArrayList<>();
+
+        for(WalletTransaction.Output output : paymentOutputs) {
+            TransactionOutput originalOutput = output.getTransactionOutput();
+            TransactionOutput newOutput = transaction.addOutput(originalOutput.getValue(), originalOutput.getScript());
+            reorderedOutputs.add(copyOutput(output, newOutput));
+        }
+
+        TransactionOutput opReturnOutput = transaction.addOutput(0L, opReturnScript);
+        reorderedOutputs.add(new WalletTransaction.NonAddressOutput(opReturnOutput));
 
         for(WalletTransaction.Output output : changeOutputs) {
             TransactionOutput originalOutput = output.getTransactionOutput();
