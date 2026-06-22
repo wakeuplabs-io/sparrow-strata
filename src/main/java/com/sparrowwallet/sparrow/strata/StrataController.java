@@ -8,6 +8,10 @@ import com.sparrowwallet.sparrow.event.WalletTabsClosedEvent;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import com.sparrowwallet.sparrow.strata.deposit.DepositController;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimController;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimableUtxoFinder;
+import com.sparrowwallet.sparrow.event.NewBlockEvent;
+import com.sparrowwallet.sparrow.event.WalletHistoryChangedEvent;
 import com.google.common.eventbus.Subscribe;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
@@ -19,13 +23,15 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.StackPane;
-import javafx.scene.layout.VBox;
 
 import java.io.IOException;
 import java.net.URL;
 import java.util.ResourceBundle;
 
 public class StrataController extends WalletFormController implements Initializable {
+
+    // TODO(reclaim): remove before merge — show Reclaim tab even without reclaimable UTXOs
+    private static final boolean ALWAYS_SHOW_RECLAIM_TAB = true;
 
     @FXML
     private ToggleGroup strataFlowToggleGroup;
@@ -45,6 +51,7 @@ public class StrataController extends WalletFormController implements Initializa
     private Node depositPane;
     private DepositController depositController;
     private Node reclaimPane;
+    private ReclaimController reclaimController;
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -56,6 +63,7 @@ public class StrataController extends WalletFormController implements Initializa
         bridgeKeyError.managedProperty().bind(bridgeKeyError.visibleProperty());
         loadDepositPane();
         loadReclaimPane();
+        updateReclaimTabVisibility();
         selectDeposit(null);
         updateBridgeKeyError();
     }
@@ -72,12 +80,26 @@ public class StrataController extends WalletFormController implements Initializa
     }
 
     private void loadReclaimPane() {
-        VBox placeholder = new VBox();
-        placeholder.setAlignment(javafx.geometry.Pos.CENTER);
-        Label label = new Label("Reclaim flow coming soon");
-        label.getStyleClass().add("help-label");
-        placeholder.getChildren().add(label);
-        reclaimPane = placeholder;
+        try {
+            FXMLLoader loader = new FXMLLoader(AppServices.class.getResource("strata/reclaim.fxml"));
+            reclaimPane = loader.load();
+            reclaimController = loader.getController();
+            reclaimController.setWalletForm(getWalletForm());
+        } catch(IOException e) {
+            throw new IllegalStateException("Cannot load strata/reclaim.fxml", e);
+        }
+    }
+
+    private void updateReclaimTabVisibility() {
+        boolean hasReclaimableUtxos = ALWAYS_SHOW_RECLAIM_TAB
+                || ReclaimableUtxoFinder.findReclaimableUtxos(getWalletForm().getWallet()).size() > 0;
+        if(reclaimToggle != null) {
+            reclaimToggle.setVisible(hasReclaimableUtxos);
+            reclaimToggle.setManaged(hasReclaimableUtxos);
+            if(!hasReclaimableUtxos && reclaimToggle.isSelected()) {
+                selectDeposit(null);
+            }
+        }
     }
 
     @FXML
@@ -126,11 +148,26 @@ public class StrataController extends WalletFormController implements Initializa
     }
 
     @Subscribe
+    public void walletHistoryChanged(WalletHistoryChangedEvent event) {
+        if(event.getWallet().equals(getWalletForm().getWallet())) {
+            Platform.runLater(this::updateReclaimTabVisibility);
+        }
+    }
+
+    @Subscribe
+    public void newBlock(NewBlockEvent event) {
+        Platform.runLater(this::updateReclaimTabVisibility);
+    }
+
+    @Subscribe
     @Override
     public void walletTabsClosed(WalletTabsClosedEvent event) {
         if(event.getClosedWalletTabData().stream().anyMatch(tabData -> tabData.getWalletForm() == getWalletForm())) {
             if(depositController != null) {
                 EventManager.get().unregister(depositController);
+            }
+            if(reclaimController != null) {
+                EventManager.get().unregister(reclaimController);
             }
         }
         super.walletTabsClosed(event);
