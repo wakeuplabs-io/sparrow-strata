@@ -30,9 +30,6 @@ import java.util.ResourceBundle;
 
 public class StrataController extends WalletFormController implements Initializable {
 
-    // TODO(reclaim): remove before merge — show Reclaim tab even without reclaimable UTXOs
-    private static final boolean ALWAYS_SHOW_RECLAIM_TAB = true;
-
     @FXML
     private ToggleGroup strataFlowToggleGroup;
 
@@ -44,6 +41,9 @@ public class StrataController extends WalletFormController implements Initializa
 
     @FXML
     private StackPane strataContent;
+
+    @FXML
+    private Label reclaimableBalanceLabel;
 
     @FXML
     private Label bridgeKeyError;
@@ -63,7 +63,7 @@ public class StrataController extends WalletFormController implements Initializa
         bridgeKeyError.managedProperty().bind(bridgeKeyError.visibleProperty());
         loadDepositPane();
         loadReclaimPane();
-        updateReclaimTabVisibility();
+        updateReclaimTabState();
         selectDeposit(null);
         updateBridgeKeyError();
     }
@@ -84,18 +84,17 @@ public class StrataController extends WalletFormController implements Initializa
             FXMLLoader loader = new FXMLLoader(AppServices.class.getResource("strata/reclaim.fxml"));
             reclaimPane = loader.load();
             reclaimController = loader.getController();
+            reclaimController.setReclaimableBalanceLabel(reclaimableBalanceLabel);
             reclaimController.setWalletForm(getWalletForm());
         } catch(IOException e) {
             throw new IllegalStateException("Cannot load strata/reclaim.fxml", e);
         }
     }
 
-    private void updateReclaimTabVisibility() {
-        boolean hasReclaimableUtxos = ALWAYS_SHOW_RECLAIM_TAB
-                || ReclaimableUtxoFinder.findReclaimableUtxos(getWalletForm().getWallet()).size() > 0;
+    private void updateReclaimTabState() {
+        boolean hasReclaimableUtxos = ReclaimableUtxoFinder.findReclaimableUtxos(getWalletForm().getWallet()).size() > 0;
         if(reclaimToggle != null) {
-            reclaimToggle.setVisible(hasReclaimableUtxos);
-            reclaimToggle.setManaged(hasReclaimableUtxos);
+            reclaimToggle.setDisable(!hasReclaimableUtxos);
             if(!hasReclaimableUtxos && reclaimToggle.isSelected()) {
                 selectDeposit(null);
             }
@@ -109,6 +108,10 @@ public class StrataController extends WalletFormController implements Initializa
 
     @FXML
     public void selectReclaim(ActionEvent event) {
+        if(reclaimToggle != null && reclaimToggle.isDisable()) {
+            selectDeposit(null);
+            return;
+        }
         showPane(reclaimPane);
     }
 
@@ -150,13 +153,13 @@ public class StrataController extends WalletFormController implements Initializa
     @Subscribe
     public void walletHistoryChanged(WalletHistoryChangedEvent event) {
         if(event.getWallet().equals(getWalletForm().getWallet())) {
-            Platform.runLater(this::updateReclaimTabVisibility);
+            Platform.runLater(this::updateReclaimTabState);
         }
     }
 
     @Subscribe
     public void newBlock(NewBlockEvent event) {
-        Platform.runLater(this::updateReclaimTabVisibility);
+        Platform.runLater(this::updateReclaimTabState);
     }
 
     @Subscribe

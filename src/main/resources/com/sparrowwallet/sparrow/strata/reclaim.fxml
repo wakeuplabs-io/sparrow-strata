@@ -4,13 +4,12 @@
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
-<?import org.controlsfx.glyphfont.Glyph?>
 
 <BorderPane stylesheets="@../wallet/utxos.css, @../wallet/wallet.css, @../general.css" styleClass="wallet-pane" xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.sparrowwallet.sparrow.strata.reclaim.ReclaimController">
     <center>
         <VBox spacing="10.0">
             <padding>
-                <Insets left="25.0" right="25.0" top="20.0" />
+                <Insets left="25.0" right="25.0" top="15.0" />
             </padding>
             <ReclaimUtxosTreeTable fx:id="reclaimTable" tableType="UTXOS" VBox.vgrow="ALWAYS" />
         </VBox>
@@ -20,8 +19,6 @@
             <padding>
                 <Insets left="25.0" right="25.0" bottom="25.0" />
             </padding>
-            <HBox AnchorPane.leftAnchor="5" alignment="CENTER_LEFT" spacing="10">
-            </HBox>
             <HBox AnchorPane.rightAnchor="10" alignment="BOTTOM_RIGHT">
                 <HBox styleClass="utxos-buttons-box" spacing="20" alignment="BOTTOM_RIGHT">
                     <Button fx:id="selectAll" text="Select All" onAction="#selectAll" />

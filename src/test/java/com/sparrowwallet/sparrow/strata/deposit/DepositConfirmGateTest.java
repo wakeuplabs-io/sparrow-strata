@@ -139,10 +139,19 @@ class DepositConfirmGateTest {
     private static WalletTransaction createSamplePreview() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         DepositRequestService service = new DepositRequestService(
                 wallet, descriptor, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS, "deposit",
-                2.0, 2.0, 1.0, 1.0, null, 100, false, false);
+                2.0, 2.0, 1.0, 1.0, null, 100, false, false,
+                null, Set.of(), null, recoveryKey);
         return service.createWalletTransaction().walletTransaction();
+    }
+
+    private static WalletRecoveryKey testRecoveryKey(Wallet wallet) {
+        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
+        WalletNode changeNode = wallet.getNode(KeyPurpose.CHANGE).getChildren().stream().findFirst()
+                .orElseGet(() -> wallet.getFreshNode(KeyPurpose.CHANGE));
+        return WalletRecoveryKey.forTesting(changeNode, recoveryKeyPair.getXOnlyPublicKey());
     }
 
     private static Wallet createWalletWithTwoUtxos() throws ImportException {

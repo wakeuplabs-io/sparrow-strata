@@ -35,7 +35,7 @@ public final class DepositRequestLockingScript {
         return new P2TRAddress(outputKey);
     }
 
-    private static Script createRecoveryTapscript(byte[] recoveryPk, int recoveryDelay) {
+    public static Script createRecoveryTapscript(byte[] recoveryPk, int recoveryDelay) {
         if(recoveryPk.length != 32) {
             throw new DepositRequestException("Recovery public key must be 32 bytes");
         }

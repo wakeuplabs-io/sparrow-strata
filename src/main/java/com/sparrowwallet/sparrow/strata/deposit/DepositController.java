@@ -191,6 +191,7 @@ public class DepositController extends WalletFormController implements Initializ
     private PauseTransition feeUpdatePause;
 
     private final BooleanProperty insufficientInputsProperty = new SimpleBooleanProperty(false);
+    private final StringProperty walletCompatibilityErrorProperty = new SimpleStringProperty();
 
     private final BooleanProperty emptyAmountProperty = new SimpleBooleanProperty(true);
 
@@ -260,7 +261,8 @@ public class DepositController extends WalletFormController implements Initializ
         fee.textProperty().addListener(feeListener);
 
         previewCoordinator = new DepositFeePreviewCoordinator(
-                (requestKey, depositLabel, recoveryKeyPair) -> new DepositFeeService(
+                getWalletForm().getWallet(),
+                (requestKey, depositLabel, recoveryKey) -> new DepositFeeService(
                         getWalletForm().getWallet(),
                         requestKey.descriptor(),
                         requestKey.amountSats(),
@@ -276,10 +278,11 @@ public class DepositController extends WalletFormController implements Initializ
                         getUtxoSelectors(),
                         excludedChangeNodes,
                         getTxoFilters(),
-                        recoveryKeyPair),
+                        recoveryKey),
                 new DepositFeePreviewCoordinator.Listener() {
                     @Override
                     public void onPreviewSucceeded(WalletTransaction walletTransaction, DepositFeeRequestKey requestKey, long amountSats) {
+                        walletCompatibilityErrorProperty.set(null);
                         insufficientInputsProperty.set(false);
                         walletTransactionProperty.setValue(walletTransaction);
                         applyTransactionDiagramState();
@@ -292,6 +295,20 @@ public class DepositController extends WalletFormController implements Initializ
                     public void onPreviewFailed(boolean insufficientFunds) {
                         clearWalletTransactionPreview();
                         insufficientInputsProperty.set(insufficientFunds);
+                        revalidateAmount();
+                        revalidateFee();
+                        applyTransactionDiagramState();
+                        updateConfirmButton();
+                    }
+
+                    @Override
+                    public void onWalletIncompatible(String message) {
+                        walletCompatibilityErrorProperty.set(message);
+                        clearWalletTransactionPreview();
+                        insufficientInputsProperty.set(false);
+                        if(!feeRateSection.isUserFeeSet()) {
+                            feeRateSection.clearFee();
+                        }
                         revalidateAmount();
                         revalidateFee();
                         applyTransactionDiagramState();
@@ -359,6 +376,7 @@ public class DepositController extends WalletFormController implements Initializ
         validationSupport.registerValidator(label, false, Validator.createEmptyValidator("Label is required"));
         validationSupport.registerValidator(amount, false, Validator.combine(
                 (Control control, String value) -> validateDepositAmount(control, value),
+                (Control c, String newValue) -> ValidationResult.fromErrorIf(c, walletCompatibilityErrorProperty.get(), walletCompatibilityErrorProperty.get() != null),
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Inputs", tryParseAmountValueSats() != null && insufficientInputsProperty.get())
         ));
         validationSupport.registerValidator(fee, Validator.combine(
@@ -369,6 +387,12 @@ public class DepositController extends WalletFormController implements Initializ
         insufficientInputsProperty.addListener((observable, oldValue, newValue) -> {
             revalidateAmount();
             revalidateFee();
+            applyTransactionDiagramState();
+            updateConfirmButton();
+        });
+
+        walletCompatibilityErrorProperty.addListener((observable, oldValue, newValue) -> {
+            revalidateAmount();
             applyTransactionDiagramState();
             updateConfirmButton();
         });

@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StrataBridgeParametersService {
     private static final Logger log = LoggerFactory.getLogger(StrataBridgeParametersService.class);
+    private static final String RECOVERY_DELAY_OVERRIDE = "RECOVERY_DELAY_OVERRIDE";
 
     private static StrataBridgeParametersService instance;
     private static String rpcUrlForTesting;
@@ -74,6 +75,27 @@ public class StrataBridgeParametersService {
     }
 
     public int getRecoveryDelay() {
+        if(Network.get() != Network.MAINNET) {
+            String value = System.getenv(RECOVERY_DELAY_OVERRIDE);
+            if(value != null && !value.isBlank()) {
+                try {
+                    int blocks = Integer.parseInt(value.trim());
+                    if(blocks >= 0 && blocks <= 0xffff) {
+                        if(log.isInfoEnabled()) {
+                            log.info("Using recovery delay override: {} blocks", blocks);
+                        }
+                        return blocks;
+                    }
+                    if(log.isWarnEnabled()) {
+                        log.warn("Ignoring {}={}: recovery delay must be between 0 and 65535", RECOVERY_DELAY_OVERRIDE, value);
+                    }
+                } catch(NumberFormatException e) {
+                    if(log.isWarnEnabled()) {
+                        log.warn("Ignoring invalid {} value: {}", RECOVERY_DELAY_OVERRIDE, value);
+                    }
+                }
+            }
+        }
         return recoveryDelay != null ? recoveryDelay : StrataBridgeConstants.RECOVER_DELAY;
     }
 

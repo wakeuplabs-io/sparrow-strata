@@ -51,9 +51,17 @@ class DepositRequestServiceTest {
         Network.set(Network.MAINNET);
     }
 
+    private static WalletRecoveryKey testRecoveryKey(Wallet wallet) {
+        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
+        WalletNode changeNode = wallet.getNode(KeyPurpose.CHANGE).getChildren().stream().findFirst()
+                .orElseGet(() -> wallet.getFreshNode(KeyPurpose.CHANGE));
+        return WalletRecoveryKey.forTesting(changeNode, recoveryKeyPair.getXOnlyPublicKey());
+    }
+
     @Test
     void honorsPresetUtxoSelector() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         BlockTransactionHashIndex utxo1 = wallet.getSpendableUtxos().keySet().stream().findFirst().orElseThrow();
         BlockTransactionHashIndex utxo2 = wallet.getSpendableUtxos().keySet().stream().filter(u -> !u.equals(utxo1)).findFirst().orElseThrow();
 
@@ -76,7 +84,8 @@ class DepositRequestServiceTest {
                 false,
                 List.of(presetSelector),
                 Set.of(),
-                null
+                null,
+                recoveryKey
         );
 
         WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
@@ -90,6 +99,7 @@ class DepositRequestServiceTest {
     @Test
     void bridgeInOutputIncludesDepFee() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         double feeRate = 2.0;
         long expectedBridgeOutput = DEPOSIT_AMOUNT + DepositFeeRates.calculateDepFee(feeRate);
@@ -106,7 +116,11 @@ class DepositRequestServiceTest {
                 null,
                 100,
                 false,
-                false
+                false,
+                null,
+                Set.of(),
+                null,
+                recoveryKey
         );
 
         WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
@@ -131,8 +145,8 @@ class DepositRequestServiceTest {
     void usesBridgeParametersRecoveryDelayForBridgeInAddress() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
-        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
-        byte[] recoveryPk = recoveryKeyPair.getXOnlyPublicKey();
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
+        byte[] recoveryPk = recoveryKey.getXOnlyPublicKey();
         byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.MAINNET);
 
         StrataBridgeParametersService.setParametersForTesting(
@@ -154,7 +168,7 @@ class DepositRequestServiceTest {
                 null,
                 Set.of(),
                 null,
-                recoveryKeyPair
+                recoveryKey
         );
 
         WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();

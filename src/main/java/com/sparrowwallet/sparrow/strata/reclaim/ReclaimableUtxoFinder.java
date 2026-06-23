@@ -12,6 +12,7 @@ import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
 import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 
 import java.util.ArrayList;
@@ -35,7 +36,9 @@ public final class ReclaimableUtxoFinder {
             return List.of();
         }
 
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(network);
+        byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
+                .getVerifiedBridgeOperatorPubkey()
+                .orElseGet(() -> StrataBridgeConstants.getBridgeOperatorPubkey(network));
         byte[] magicBytes = StrataBridgeParametersService.getInstance().getMagicBytes();
         int recoveryDelay = StrataBridgeParametersService.getInstance().getRecoveryDelay();
         Integer currentHeight = AppServices.getCurrentBlockHeight();

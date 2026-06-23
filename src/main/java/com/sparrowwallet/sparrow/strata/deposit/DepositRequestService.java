@@ -32,7 +32,7 @@ public class DepositRequestService {
     private final List<UtxoSelector> utxoSelectorsOverride;
     private final Set<WalletNode> excludedChangeNodes;
     private final List<TxoFilter> txoFiltersOverride;
-    private final RecoveryKeyPair recoveryKeyPair;
+    private final WalletRecoveryKey walletRecoveryKey;
 
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
                                  double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
@@ -52,7 +52,7 @@ public class DepositRequestService {
     public DepositRequestService(Wallet wallet, DepositDescriptor depositDescriptor, long amountSats, String label, double feeRate,
                                  double depFeeRate, double minimumFeeRate, double minRelayFeeRate, Long userFee, Integer currentBlockHeight,
                                  boolean groupByAddress, boolean includeMempoolOutputs, List<UtxoSelector> utxoSelectorsOverride,
-                                 Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFiltersOverride, RecoveryKeyPair recoveryKeyPair) {
+                                 Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFiltersOverride, WalletRecoveryKey walletRecoveryKey) {
         this.wallet = wallet;
         this.depositDescriptor = depositDescriptor;
         this.amountSats = amountSats;
@@ -68,7 +68,7 @@ public class DepositRequestService {
         this.utxoSelectorsOverride = utxoSelectorsOverride;
         this.excludedChangeNodes = excludedChangeNodes == null ? Set.of() : excludedChangeNodes;
         this.txoFiltersOverride = txoFiltersOverride;
-        this.recoveryKeyPair = recoveryKeyPair;
+        this.walletRecoveryKey = walletRecoveryKey;
     }
 
     public DepositRequestResult createWalletTransaction() throws InsufficientFundsException {
@@ -76,7 +76,7 @@ public class DepositRequestService {
         byte[] magicBytes = bridgeParameters.getMagicBytes();
         int recoveryDelay = bridgeParameters.getRecoveryDelay();
 
-        RecoveryKeyPair recoveryKeyPair = this.recoveryKeyPair != null ? this.recoveryKeyPair : RecoveryKeyPair.generate();
+        WalletRecoveryKey recoveryKey = this.walletRecoveryKey != null ? this.walletRecoveryKey : WalletRecoveryKeySelector.select(wallet);
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
                 .orElseThrow(() -> new DepositRequestException(
@@ -84,7 +84,7 @@ public class DepositRequestService {
                                 ? StrataBridgeKeyVerificationService.getInstance().getMessage()
                                 : "Bridge deposit is unavailable"));
         P2TRAddress bridgeInAddress = DepositRequestLockingScript.createBridgeInAddress(
-                recoveryKeyPair.getXOnlyPublicKey(),
+                recoveryKey.getXOnlyPublicKey(),
                 bridgeOperatorPubkey,
                 recoveryDelay
         );
@@ -92,7 +92,7 @@ public class DepositRequestService {
         byte[] destinationBytes = Sps50Encoder.usesLegacyTagFormat(magicBytes)
                 ? depositDescriptor.getDestSubject()
                 : depositDescriptor.encodeToBytes();
-        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKeyPair.getXOnlyPublicKey(), destinationBytes);
+        DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKey.getXOnlyPublicKey(), destinationBytes);
         Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), magicBytes);
         byte[] opReturnPayload = Sps50Encoder.encodeTag(headerAux.buildAuxData(), magicBytes);
 
@@ -126,9 +126,9 @@ public class DepositRequestService {
         WalletTransaction orderedTransaction = DepositOutputOrdering.reorder(walletTransaction, opReturnScript, magicBytes);
 
         if(log.isDebugEnabled()) {
-            log.debug("Built deposit request transaction with recovery public key {}", Utils.bytesToHex(recoveryKeyPair.getXOnlyPublicKey()));
+            log.debug("Built deposit request transaction with recovery public key {}", Utils.bytesToHex(recoveryKey.getXOnlyPublicKey()));
         }
-        return new DepositRequestResult(orderedTransaction, recoveryKeyPair);
+        return new DepositRequestResult(orderedTransaction, recoveryKey);
     }
 
     private List<UtxoSelector> getDefaultUtxoSelectors(List<Payment> payments) {
@@ -137,6 +137,6 @@ public class DepositRequestService {
         return List.of(new BnBUtxoSelector(noInputsFee, costOfChange), new KnapsackUtxoSelector(noInputsFee));
     }
 
-    public record DepositRequestResult(WalletTransaction walletTransaction, RecoveryKeyPair recoveryKeyPair) {
+    public record DepositRequestResult(WalletTransaction walletTransaction, WalletRecoveryKey recoveryKey) {
     }
 }

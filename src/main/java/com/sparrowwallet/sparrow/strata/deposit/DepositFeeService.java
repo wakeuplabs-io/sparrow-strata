@@ -20,10 +20,10 @@ public class DepositFeeService extends Service<WalletTransaction> {
                              double selectionFeeRate, double sliderFeeRate, double minimumFeeRate, double minRelayFeeRate,
                              Long userFee, Integer currentBlockHeight, boolean groupByAddress, boolean includeMempoolOutputs,
                              List<UtxoSelector> utxoSelectors, Set<WalletNode> excludedChangeNodes, List<TxoFilter> txoFilters,
-                             RecoveryKeyPair recoveryKeyPair) {
+                             WalletRecoveryKey recoveryKey) {
         this.depositRequestService = new DepositRequestService(wallet, depositDescriptor, amountSats, label,
                 selectionFeeRate, sliderFeeRate, minimumFeeRate, minRelayFeeRate, userFee, currentBlockHeight, groupByAddress, includeMempoolOutputs,
-                utxoSelectors, excludedChangeNodes, txoFilters, recoveryKeyPair);
+                utxoSelectors, excludedChangeNodes, txoFilters, recoveryKey);
     }
 
     @Override

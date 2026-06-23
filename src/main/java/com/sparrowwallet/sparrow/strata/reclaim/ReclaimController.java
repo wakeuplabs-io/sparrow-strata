@@ -5,8 +5,8 @@ import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.Address;
+import com.sparrowwallet.drongo.psbt.PSBT;
 import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
-import com.sparrowwallet.drongo.wallet.Payment;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.sparrow.AppServices;
@@ -14,15 +14,13 @@ import com.sparrowwallet.sparrow.EventManager;
 import com.sparrowwallet.sparrow.UnitFormat;
 import com.sparrowwallet.sparrow.event.DepositActionEvent;
 import com.sparrowwallet.sparrow.event.NewBlockEvent;
-import com.sparrowwallet.sparrow.event.SendActionEvent;
-import com.sparrowwallet.sparrow.event.SpendUtxoEvent;
 import com.sparrowwallet.sparrow.event.StrataBridgeParametersUpdatedEvent;
+import com.sparrowwallet.sparrow.event.ViewPSBTEvent;
 import com.sparrowwallet.sparrow.event.WalletHistoryChangedEvent;
 import com.sparrowwallet.sparrow.control.ReclaimUtxosTreeTable;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
-import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
@@ -30,6 +28,8 @@ import javafx.fxml.Initializable;
 import javafx.scene.control.Button;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URL;
 import java.util.ArrayList;
@@ -38,9 +38,12 @@ import java.util.ResourceBundle;
 import java.util.stream.Collectors;
 
 public class ReclaimController extends WalletFormController implements Initializable {
+    private static final Logger log = LoggerFactory.getLogger(ReclaimController.class);
 
     @FXML
     private ReclaimUtxosTreeTable reclaimTable;
+
+    private Label reclaimableBalanceLabel;
 
     @FXML
     private Button selectAll;
@@ -54,12 +57,15 @@ public class ReclaimController extends WalletFormController implements Initializ
     @FXML
     private Button reclaim;
 
-
     private List<ReclaimEntry> reclaimEntries = List.of();
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         EventManager.get().register(this);
+    }
+
+    public void setReclaimableBalanceLabel(Label reclaimableBalanceLabel) {
+        this.reclaimableBalanceLabel = reclaimableBalanceLabel;
     }
 
     @Override
@@ -77,8 +83,25 @@ public class ReclaimController extends WalletFormController implements Initializ
     private void refreshReclaimEntries() {
         reclaimEntries = new ArrayList<>(ReclaimableUtxoFinder.findReclaimableUtxos(getWalletForm().getWallet()));
         reclaimTable.updateEntries(reclaimEntries);
+        updateReclaimableBalanceLabel();
         updateButtons();
     }
+
+    private void updateReclaimableBalanceLabel() {
+        if(reclaimableBalanceLabel == null) {
+            return;
+        }
+        long balanceSats = reclaimEntries.stream().mapToLong(ReclaimEntry::getValue).sum();
+        BitcoinUnit unit = getWalletForm().getWallet().getAutoUnit();
+        UnitFormat format = Config.get().getUnitFormat() == null ? UnitFormat.DOT : Config.get().getUnitFormat();
+        String formatted = unit == BitcoinUnit.SATOSHIS
+                ? format.formatSatsValue(balanceSats) + " sats"
+                : format.formatBtcValue(balanceSats) + " BTC";
+        reclaimableBalanceLabel.setText("You have " + formatted + " available to reclaim");
+        reclaimableBalanceLabel.setVisible(balanceSats > 0);
+        reclaimableBalanceLabel.setManaged(balanceSats > 0);
+    }
+
 
 
     private void updateButtons() {
@@ -122,15 +145,26 @@ public class ReclaimController extends WalletFormController implements Initializ
     @FXML
     public void reclaimSelected(ActionEvent event) {
         Wallet wallet = getWalletForm().getWallet();
-        List<BlockTransactionHashIndex> spendingUtxos = getSelectedUtxos();
-        Address destination = getUnusedReceiveAddress(wallet);
-        long total = spendingUtxos.stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
-        Payment payment = new Payment(destination, null, total, true);
+        List<ReclaimEntry> selectedEntries = getSelectedEntries();
+        if(selectedEntries.isEmpty()) {
+            return;
+        }
 
-        EventManager.get().post(new SendActionEvent(wallet, spendingUtxos));
-        Platform.runLater(() -> EventManager.get().post(new SpendUtxoEvent(wallet, spendingUtxos, List.of(payment), null, null, true, null, true)));
+        try {
+            Address destination = getUnusedReceiveAddress(wallet);
+            double feeRate = Math.max(
+                    AppServices.getDefaultFeeRate() != null ? AppServices.getDefaultFeeRate() : AppServices.getFallbackFeeRate(),
+                    AppServices.getMinimumRelayFeeRate() != null ? AppServices.getMinimumRelayFeeRate() : AppServices.getFallbackFeeRate()
+            );
+            PSBT psbt = ReclaimRequestService.buildReclaimPsbt(wallet, selectedEntries, destination, feeRate);
+            EventManager.get().post(new ViewPSBTEvent(reclaim.getScene().getWindow(), "Reclaim", null, psbt));
+        } catch(ReclaimException e) {
+            AppServices.showErrorDialog("Reclaim unavailable", e.getMessage());
+        } catch(Exception e) {
+            log.error("Failed to build reclaim transaction", e);
+            AppServices.showErrorDialog("Reclaim failed", e.getMessage() != null ? e.getMessage() : "Failed to build reclaim transaction");
+        }
     }
-
 
     private Address getUnusedReceiveAddress(Wallet wallet) {
         WalletNode freshNode = wallet.getFreshNode(KeyPurpose.RECEIVE);
@@ -142,7 +176,6 @@ public class ReclaimController extends WalletFormController implements Initializ
         return freshAddress;
     }
 
-
     public boolean hasReclaimableUtxos() {
         return !reclaimEntries.isEmpty();
     }
@@ -150,17 +183,17 @@ public class ReclaimController extends WalletFormController implements Initializ
     @Subscribe
     public void walletHistoryChanged(WalletHistoryChangedEvent event) {
         if(event.getWallet().equals(getWalletForm().getWallet())) {
-            Platform.runLater(this::refreshReclaimEntries);
+            javafx.application.Platform.runLater(this::refreshReclaimEntries);
         }
     }
 
     @Subscribe
     public void newBlock(NewBlockEvent event) {
-        Platform.runLater(this::refreshReclaimEntries);
+        javafx.application.Platform.runLater(this::refreshReclaimEntries);
     }
 
     @Subscribe
     public void strataBridgeParametersUpdated(StrataBridgeParametersUpdatedEvent event) {
-        Platform.runLater(this::refreshReclaimEntries);
+        javafx.application.Platform.runLater(this::refreshReclaimEntries);
     }
 }
