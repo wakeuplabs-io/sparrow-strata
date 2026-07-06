@@ -46,6 +46,9 @@ public class StrataController extends WalletFormController implements Initializa
     private Label reclaimableBalanceLabel;
 
     @FXML
+    private Label walletCompatibilityError;
+
+    @FXML
     private Label bridgeKeyError;
 
     private Node depositPane;
@@ -61,6 +64,7 @@ public class StrataController extends WalletFormController implements Initializa
     @Override
     public void initializeView() {
         bridgeKeyError.managedProperty().bind(bridgeKeyError.visibleProperty());
+        walletCompatibilityError.managedProperty().bind(walletCompatibilityError.visibleProperty());
         loadDepositPane();
         loadReclaimPane();
         updateReclaimTabState();
@@ -73,6 +77,7 @@ public class StrataController extends WalletFormController implements Initializa
             FXMLLoader loader = new FXMLLoader(AppServices.class.getResource("strata/deposit.fxml"));
             depositPane = loader.load();
             depositController = loader.getController();
+            depositController.setWalletCompatibilityErrorLabel(walletCompatibilityError);
             depositController.setWalletForm(getWalletForm());
         } catch(IOException e) {
             throw new IllegalStateException("Cannot load strata/deposit.fxml", e);

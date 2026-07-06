@@ -181,6 +181,8 @@ public class DepositController extends WalletFormController implements Initializ
     @FXML
     private Button clearButton;
 
+    private Label walletCompatibilityErrorLabel;
+
     private ValidationSupport validationSupport;
 
     private DepositFeeRateSection feeRateSection;
@@ -251,6 +253,10 @@ public class DepositController extends WalletFormController implements Initializ
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         EventManager.get().register(this);
+    }
+
+    public void setWalletCompatibilityErrorLabel(Label walletCompatibilityErrorLabel) {
+        this.walletCompatibilityErrorLabel = walletCompatibilityErrorLabel;
     }
 
     @Override
@@ -335,6 +341,7 @@ public class DepositController extends WalletFormController implements Initializ
         addValidation();
         initializeAmountFields();
         initializeCoinControl();
+        updateWalletCompatibilityError();
         updateBridgeLinkVisibility();
         StrataBridgeParametersService.getInstance().refresh();
         StrataBridgeKeyVerificationService.getInstance().refresh();
@@ -380,7 +387,6 @@ public class DepositController extends WalletFormController implements Initializ
                 (Control control, String value) -> validateDepositAddress(control, value)));
         validationSupport.registerValidator(amount, false, gateOnTouched(amountTouched, Validator.combine(
                 (Control control, String value) -> validateDepositAmount(control, value),
-                (Control c, String newValue) -> ValidationResult.fromErrorIf(c, walletCompatibilityErrorProperty.get(), walletCompatibilityErrorProperty.get() != null),
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient funds", tryParseAmountValueSats() != null && insufficientInputsProperty.get())
         )));
         validationSupport.registerValidator(fee, Validator.combine(
@@ -396,7 +402,7 @@ public class DepositController extends WalletFormController implements Initializ
         });
 
         walletCompatibilityErrorProperty.addListener((observable, oldValue, newValue) -> {
-            revalidateAmount();
+            syncWalletCompatibilityErrorLabel();
             applyTransactionDiagramState();
             updateConfirmButton();
         });
@@ -912,10 +918,25 @@ public class DepositController extends WalletFormController implements Initializ
         transactionDiagram.update(walletTransaction);
     }
 
+    private void updateWalletCompatibilityError() {
+        Optional<String> error = WalletRecoveryKeySelector.getCompatibilityError(getWalletForm().getWallet());
+        walletCompatibilityErrorProperty.set(error.orElse(null));
+    }
+
+    private void syncWalletCompatibilityErrorLabel() {
+        if(walletCompatibilityErrorLabel == null) {
+            return;
+        }
+        String message = walletCompatibilityErrorProperty.get();
+        walletCompatibilityErrorLabel.setVisible(message != null);
+        walletCompatibilityErrorLabel.setText(message);
+    }
+
     private void updateConfirmButton() {
         boolean validationInvalid = validationSupport != null && validationSupport.isInvalid();
+        boolean walletIncompatible = walletCompatibilityErrorProperty.get() != null;
         confirmButton.setDisable(!DepositConfirmGate.isConfirmEnabled(new DepositConfirmGate.DepositConfirmState(
-                validationInvalid,
+                validationInvalid || walletIncompatible,
                 depositTo.getText() != null && !depositTo.getText().isBlank(),
                 label.getText() != null && !label.getText().isBlank(),
                 amount.getText() != null && !amount.getText().isBlank(),

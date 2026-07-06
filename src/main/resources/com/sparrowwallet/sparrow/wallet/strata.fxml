@@ -26,6 +26,7 @@
                     <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="11" icon="INFO_CIRCLE" />
                 </graphic>
             </Label>
+            <Label fx:id="walletCompatibilityError" styleClass="failure" visible="false" managed="false" wrapText="true" />
             <Label fx:id="bridgeKeyError" styleClass="failure" visible="false" managed="false" wrapText="true" />
         </HBox>
     </top>
