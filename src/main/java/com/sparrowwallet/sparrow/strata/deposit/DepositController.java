@@ -52,6 +52,7 @@ import javafx.fxml.Initializable;
 import javafx.scene.control.*;
 import javafx.util.Duration;
 import org.controlsfx.glyphfont.Glyph;
+import org.controlsfx.validation.ValidationMessage;
 import org.controlsfx.validation.ValidationResult;
 import org.controlsfx.validation.ValidationSupport;
 import org.controlsfx.validation.Validator;
@@ -195,6 +196,10 @@ public class DepositController extends WalletFormController implements Initializ
 
     private final BooleanProperty emptyAmountProperty = new SimpleBooleanProperty(true);
 
+    private final BooleanProperty depositToTouched = new SimpleBooleanProperty(false);
+
+    private final BooleanProperty amountTouched = new SimpleBooleanProperty(false);
+
     private final ObjectProperty<UtxoSelector> utxoSelectorProperty = new SimpleObjectProperty<>(null);
 
     private final ObjectProperty<TxoFilter> txoFilterProperty = new SimpleObjectProperty<>(null);
@@ -211,6 +216,7 @@ public class DepositController extends WalletFormController implements Initializ
             if(feeRateSection != null && feeRateSection.getApplyingPreviewUpdates() > 0) {
                 return;
             }
+            markFieldTouched(amount, amountTouched);
             emptyAmountProperty.set(newValue == null || newValue.isEmpty());
             if(utxoSelectorProperty.get() instanceof MaxUtxoSelector) {
                 utxoSelectorProperty.setValue(null);
@@ -238,7 +244,6 @@ public class DepositController extends WalletFormController implements Initializ
             if(feeRateSection != null && feeRateSection.getApplyingPreviewUpdates() > 0) {
                 return;
             }
-            validationSupport.setErrorDecorationEnabled(true);
             feeRateSection.onFeeFieldChanged(newValue);
         }
     };
@@ -367,18 +372,17 @@ public class DepositController extends WalletFormController implements Initializ
     private void addValidation() {
         validationSupport = new ValidationSupport();
         validationSupport.setValidationDecorator(new StyleClassValidationDecoration());
-        validationSupport.setErrorDecorationEnabled(false);
+        validationSupport.setErrorDecorationEnabled(true);
 
-        validationSupport.registerValidator(depositTo, false, Validator.combine(
-                Validator.createEmptyValidator("Deposit address is required"),
-                (Control control, String value) -> validateDepositAddress(control, value)
-        ));
-        validationSupport.registerValidator(label, false, Validator.createEmptyValidator("Label is required"));
-        validationSupport.registerValidator(amount, false, Validator.combine(
+        amountStatus.managedProperty().bind(amountStatus.visibleProperty());
+
+        validationSupport.registerValidator(depositTo, false, gateOnTouched(depositToTouched,
+                (Control control, String value) -> validateDepositAddress(control, value)));
+        validationSupport.registerValidator(amount, false, gateOnTouched(amountTouched, Validator.combine(
                 (Control control, String value) -> validateDepositAmount(control, value),
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, walletCompatibilityErrorProperty.get(), walletCompatibilityErrorProperty.get() != null),
-                (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Inputs", tryParseAmountValueSats() != null && insufficientInputsProperty.get())
-        ));
+                (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient funds", tryParseAmountValueSats() != null && insufficientInputsProperty.get())
+        )));
         validationSupport.registerValidator(fee, Validator.combine(
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Inputs", feeRateSection.isUserFeeSet() && insufficientInputsProperty.get()),
                 (Control c, String newValue) -> ValidationResult.fromErrorIf(c, "Insufficient Fee Rate", isInsufficientFeeRate())
@@ -398,15 +402,21 @@ public class DepositController extends WalletFormController implements Initializ
         });
 
         validationSupport.validationResultProperty().addListener((observable, oldValue, newValue) -> {
+            updateFieldErrorLabel(amountStatus, amount);
             applyTransactionDiagramState();
             updateConfirmButton();
         });
         depositTo.textProperty().addListener((observable, oldValue, newValue) -> {
-            validationSupport.setErrorDecorationEnabled(true);
+            markFieldTouched(depositTo, depositToTouched);
             updateDepositAddressProperty(newValue);
             updateConfirmButton();
             updateMaxButton();
             scheduleUpdateFee();
+        });
+        depositTo.focusedProperty().addListener((observable, wasFocused, isFocused) -> {
+            if(!isFocused) {
+                markFieldTouched(depositTo, depositToTouched);
+            }
         });
         label.textProperty().addListener((observable, oldValue, newValue) -> {
             updateConfirmButton();
@@ -414,6 +424,34 @@ public class DepositController extends WalletFormController implements Initializ
             scheduleUpdateFee();
         });
         amount.textProperty().addListener(amountListener);
+        amount.focusedProperty().addListener((observable, wasFocused, isFocused) -> {
+            if(!isFocused) {
+                markFieldTouched(amount, amountTouched);
+            }
+        });
+    }
+
+    /**
+     * Wraps a validator so it only reports errors once the user has interacted with the field,
+     * preventing untouched fields from showing errors just because another field's decoration was triggered.
+     */
+    private static <T> Validator<T> gateOnTouched(BooleanProperty touched, Validator<T> validator) {
+        return (Control control, T value) -> touched.get() ? validator.apply(control, value) : new ValidationResult();
+    }
+
+    private void markFieldTouched(Control control, BooleanProperty touched) {
+        if(!touched.get()) {
+            touched.set(true);
+            if(validationSupport != null) {
+                validationSupport.revalidate(control);
+            }
+        }
+    }
+
+    private void updateFieldErrorLabel(Label errorLabel, Control control) {
+        String message = validationSupport.getHighestMessage(control).map(ValidationMessage::getText).orElse(null);
+        errorLabel.setText(message);
+        errorLabel.setVisible(message != null);
     }
 
     private DepositFeeRequestKey buildFeeRequestKey(DepositDescriptor descriptor, long amountSats, double sliderFeeRate, Long userFee, String depositLabel) {
@@ -432,7 +470,7 @@ public class DepositController extends WalletFormController implements Initializ
 
     private ValidationResult validateDepositAmount(Control control, String value) {
         if(value == null || value.isEmpty()) {
-            return ValidationResult.fromError(control, "Amount is required");
+            return new ValidationResult();
         }
         try {
             Optional<String> error = getDepositAmountValidationError(getAmountValueSats());
@@ -505,9 +543,6 @@ public class DepositController extends WalletFormController implements Initializ
             updateConfirmButton();
             updateFee();
         });
-
-        amountStatus.managedProperty().bind(amountStatus.visibleProperty());
-        amountStatus.visibleProperty().bind(insufficientInputsProperty.and(emptyAmountProperty.not()));
     }
 
     private void initializeCoinControl() {
@@ -736,6 +771,8 @@ public class DepositController extends WalletFormController implements Initializ
         label.setText("");
         depositAddressProperty.set(null);
 
+        maxButton.setSelected(false);
+
         feeRateSection.incrementApplyingPreviewUpdates();
         try {
             amount.textProperty().removeListener(amountListener);
@@ -757,13 +794,14 @@ public class DepositController extends WalletFormController implements Initializ
         feeRateSection.clearFee();
         insufficientInputsProperty.set(false);
 
+        depositToTouched.set(false);
+        amountTouched.set(false);
         if(validationSupport != null) {
-            validationSupport.setErrorDecorationEnabled(false);
+            validationSupport.revalidate();
         }
 
         feeRateSection.hideCpfp();
         feeRateSection.setDefaultFeeRate();
-        maxButton.setSelected(false);
         updateOptimizationButtons();
         updateMaxButton();
         updatePrivacyAnalysis(null);
@@ -1060,6 +1098,7 @@ public class DepositController extends WalletFormController implements Initializ
             df.setMaximumFractionDigits(8);
             amount.setText(df.format(amountUnit.getValue().getValue(amountValue)));
             amount.textProperty().addListener(amountListener);
+            markFieldTouched(amount, amountTouched);
             emptyAmountProperty.set(false);
             setFiatAmount(AppServices.getFiatCurrencyExchangeRate(), amountValue);
             updateConfirmButton();
