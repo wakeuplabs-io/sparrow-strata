@@ -71,12 +71,9 @@
                             <Label style="-fx-pref-width: 15" />
                             <FiatLabel fx:id="fiatAmount" />
                             <Group managed="false" translateY="38">
-                                <Label fx:id="amountStatus" text="Insufficient funds">
-                                    <tooltip>
-                                        <Tooltip text="Insufficient confirmed transaction value" />
-                                    </tooltip>
+                                <Label fx:id="amountStatus" styleClass="failure" visible="false" managed="false" wrapText="true">
                                     <graphic>
-                                        <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="12" icon="EXCLAMATION_CIRCLE" styleClass="failure" />
+                                        <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="10" icon="EXCLAMATION_CIRCLE" styleClass="failure" />
                                     </graphic>
                                 </Label>
                             </Group>
