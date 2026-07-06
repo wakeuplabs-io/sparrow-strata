@@ -1,0 +1,46 @@
+package com.sparrowwallet.sparrow.strata.net;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
+import java.util.OptionalLong;
+
+final class StrataDepositDenominationParser {
+    private StrataDepositDenominationParser() {
+    }
+
+    static OptionalLong parseDepositAmountFromRollupParams(JsonObject result) {
+        if(result == null) {
+            return OptionalLong.empty();
+        }
+        if(result.has("deposit_amount")) {
+            return parseAmountField(result.get("deposit_amount"));
+        }
+        if(result.has("rollup") && result.get("rollup").isJsonObject()) {
+            JsonObject rollup = result.getAsJsonObject("rollup");
+            if(rollup.has("deposit_amount")) {
+                return parseAmountField(rollup.get("deposit_amount"));
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    static OptionalLong parseAmountField(JsonElement amountElement) {
+        if(amountElement == null || amountElement.isJsonNull()) {
+            return OptionalLong.empty();
+        }
+        if(amountElement.isJsonPrimitive()) {
+            if(amountElement.getAsJsonPrimitive().isNumber()) {
+                return OptionalLong.of(amountElement.getAsLong());
+            }
+            if(amountElement.getAsJsonPrimitive().isString()) {
+                try {
+                    return OptionalLong.of(Long.parseLong(amountElement.getAsString()));
+                } catch(NumberFormatException e) {
+                    return OptionalLong.empty();
+                }
+            }
+        }
+        return OptionalLong.empty();
+    }
+}

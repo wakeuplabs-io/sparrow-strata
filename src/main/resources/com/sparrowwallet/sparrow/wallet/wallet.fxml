@@ -38,6 +38,14 @@
                     <Function fx:constant="RECEIVE"/>
                 </userData>
             </ToggleButton>
+            <ToggleButton VBox.vgrow="ALWAYS" text="Strata" contentDisplay="TOP" styleClass="list-item" maxHeight="Infinity" toggleGroup="$walletMenu">
+                <graphic>
+                    <Glyph fontFamily="Font Awesome 5 Free Solid" icon="SHARE_ALT" fontSize="20" />
+                </graphic>
+                <userData>
+                    <Function fx:constant="STRATA"/>
+                </userData>
+            </ToggleButton>
             <ToggleButton VBox.vgrow="ALWAYS" text="Addresses" contentDisplay="TOP" styleClass="list-item" maxHeight="Infinity" toggleGroup="$walletMenu">
                 <graphic>
                     <Glyph fontFamily="FontAwesome" icon="TH_LIST" fontSize="20" />

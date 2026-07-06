@@ -11,6 +11,7 @@ import com.sparrowwallet.sparrow.io.Server;
 import com.sparrowwallet.sparrow.net.BlockExplorer;
 import com.sparrowwallet.sparrow.net.ExchangeSource;
 import com.sparrowwallet.sparrow.net.FeeRatesSource;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
@@ -55,6 +56,9 @@ public class GeneralSettingsController extends SettingsDetailController {
 
     @FXML
     private UnlabeledToggleSwitch validateDerivationPaths;
+
+    @FXML
+    private UnlabeledToggleSwitch disableBridgeKeyVerification;
 
     @FXML
     private UnlabeledToggleSwitch groupByAddress;
@@ -166,6 +170,11 @@ public class GeneralSettingsController extends SettingsDetailController {
             System.setProperty(Wallet.ALLOW_DERIVATIONS_MATCHING_OTHER_SCRIPT_TYPES_PROPERTY, Boolean.toString(!newValue));
             System.setProperty(Wallet.ALLOW_DERIVATIONS_MATCHING_OTHER_NETWORKS_PROPERTY, Boolean.toString(!newValue));
         });
+
+        // Session-only setting: always defaults to false on restart.
+        disableBridgeKeyVerification.setSelected(false);
+        disableBridgeKeyVerification.selectedProperty().addListener((observableValue, oldValue, disabled) ->
+                StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(disabled));
 
         groupByAddress.setSelected(config.isGroupByAddress());
         includeMempoolOutputs.setSelected(config.isIncludeMempoolOutputs());

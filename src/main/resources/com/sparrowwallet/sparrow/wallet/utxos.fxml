@@ -77,6 +77,11 @@
                                     <Glyph fontFamily="FontAwesome" icon="SEND" fontSize="12" />
                                 </graphic>
                             </Button>
+                            <Button fx:id="depositSelected" text="Deposit Selected" graphicTextGap="5" onAction="#depositSelected">
+                                <graphic>
+                                    <Glyph fontFamily="FontAwesome" icon="SEND" fontSize="12" />
+                                </graphic>
+                            </Button>
                         </HBox>
                     </HBox>
                 </bottom>

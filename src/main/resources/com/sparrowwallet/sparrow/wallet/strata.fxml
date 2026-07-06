@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import org.controlsfx.control.SegmentedButton?>
+
+<BorderPane stylesheets="@wallet.css, @../general.css" styleClass="wallet-pane" xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.sparrowwallet.sparrow.strata.StrataController">
+    <top>
+        <HBox alignment="CENTER_LEFT" spacing="20.0">
+            <padding>
+                <Insets left="25.0" right="25.0" top="25.0" />
+            </padding>
+            <SegmentedButton>
+                <toggleGroup>
+                    <ToggleGroup fx:id="strataFlowToggleGroup" />
+                </toggleGroup>
+                <buttons>
+                    <ToggleButton fx:id="depositToggle" text="Deposit" selected="true" toggleGroup="$strataFlowToggleGroup" onAction="#selectDeposit" />
+                    <ToggleButton fx:id="reclaimToggle" text="Reclaim" toggleGroup="$strataFlowToggleGroup" onAction="#selectReclaim" />
+                </buttons>
+            </SegmentedButton>
+            <Label fx:id="bridgeKeyError" styleClass="failure" visible="false" managed="false" wrapText="true" />
+        </HBox>
+    </top>
+    <center>
+        <StackPane fx:id="strataContent" />
+    </center>
+</BorderPane>
