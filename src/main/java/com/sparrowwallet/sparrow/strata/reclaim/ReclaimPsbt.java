@@ -38,6 +38,10 @@ public final class ReclaimPsbt {
         psbtInput.getProprietary().put(INPUT_RECOVERY_PK_KEY, Utils.bytesToHex(recoveryPk));
     }
 
+    public static boolean hasInputRecoveryPk(PSBTInput psbtInput) {
+        return psbtInput.getProprietary().containsKey(INPUT_RECOVERY_PK_KEY);
+    }
+
     public static byte[] getInputRecoveryPk(PSBTInput psbtInput) {
         String hex = psbtInput.getProprietary().get(INPUT_RECOVERY_PK_KEY);
         if(hex == null) {
@@ -50,6 +54,11 @@ public final class ReclaimPsbt {
         return recoveryPk;
     }
 
+    /**
+     * A reclaim PSBT may also contain normal wallet inputs (e.g. when retrying a deposit using a
+     * reclaimed UTXO alongside additional wallet funding). This returns true if this wallet can sign
+     * every input marked with recovery key metadata, regardless of any other, non-reclaim inputs.
+     */
     public static boolean canWalletSign(Wallet wallet, PSBT psbt) {
         if(!isReclaimPsbt(psbt) || wallet == null || !wallet.isValid()) {
             return false;
@@ -60,9 +69,15 @@ public final class ReclaimPsbt {
         if(wallet.getKeystores().size() != 1 || wallet.getKeystores().get(0).getSource() != KeystoreSource.SW_SEED) {
             return false;
         }
-        return getSigningNodes(wallet, psbt).size() == psbt.getPsbtInputs().size();
+        long reclaimInputCount = psbt.getPsbtInputs().stream().filter(ReclaimPsbt::hasInputRecoveryPk).count();
+        return reclaimInputCount > 0 && getSigningNodes(wallet, psbt).size() == reclaimInputCount;
     }
 
+    /**
+     * Returns signing nodes for the inputs marked with recovery key metadata only. Inputs without
+     * that metadata (e.g. normal wallet inputs added when retrying a deposit) are left for the
+     * regular wallet signing flow to handle.
+     */
     public static Map<PSBTInput, WalletNode> getSigningNodes(Wallet wallet, PSBT psbt) {
         Map<PSBTInput, WalletNode> signingNodes = new LinkedHashMap<>();
         if(!isReclaimPsbt(psbt)) {
@@ -70,6 +85,9 @@ public final class ReclaimPsbt {
         }
 
         for(PSBTInput psbtInput : psbt.getPsbtInputs()) {
+            if(!hasInputRecoveryPk(psbtInput)) {
+                continue;
+            }
             byte[] recoveryPk = getInputRecoveryPk(psbtInput);
             Optional<WalletNode> signingNode = WalletRecoveryKeyResolver.findSigningNode(wallet, recoveryPk);
             signingNode.ifPresent(node -> signingNodes.put(psbtInput, node));

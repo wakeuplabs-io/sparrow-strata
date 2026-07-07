@@ -22,6 +22,12 @@ import java.util.List;
 import java.util.Optional;
 
 public final class ReclaimTransactionBuilder {
+    /**
+     * Estimated additional virtual bytes contributed by a single reclaim tapscript input
+     * (Schnorr signature + tapscript + control block, witness-discounted).
+     */
+    public static final long RECLAIM_INPUT_VBYTES = 57L;
+
     private ReclaimTransactionBuilder() {
     }
 
@@ -100,7 +106,7 @@ public final class ReclaimTransactionBuilder {
         return psbt;
     }
 
-    private static long csvSequence(int recoveryDelay) {
+    static long csvSequence(int recoveryDelay) {
         if(recoveryDelay < 0 || recoveryDelay > 0xffff) {
             throw new ReclaimException("Recovery delay out of range for CSV: " + recoveryDelay);
         }
@@ -109,7 +115,7 @@ public final class ReclaimTransactionBuilder {
     }
 
     private static long estimateFee(int inputCount, double feeRate) {
-        long vbytes = 11 + 43 + (57L * inputCount);
+        long vbytes = 11 + 43 + (RECLAIM_INPUT_VBYTES * inputCount);
         return (long)Math.ceil(vbytes * feeRate);
     }
 }

@@ -1189,7 +1189,12 @@ public class HeadersController extends TransactionFormController implements Init
                 if(headersForm.getPsbt().isFinalized()) {
                     EventManager.get().post(new PSBTFinalizedEvent(headersForm.getPsbt()));
                 }
-                return;
+                //A retried deposit's PSBT can mix reclaim inputs with normal wallet inputs - fall through
+                //to sign any remaining, non-reclaim inputs normally rather than returning here.
+                boolean hasNonReclaimInputs = headersForm.getPsbt().getPsbtInputs().stream().anyMatch(input -> !ReclaimPsbt.hasInputRecoveryPk(input));
+                if(!hasNonReclaimInputs) {
+                    return;
+                }
             }
 
             Map<PSBTInput, WalletNode> signingNodes = unencryptedWallet.getSigningNodes(headersForm.getPsbt());
@@ -1918,14 +1923,18 @@ public class HeadersController extends TransactionFormController implements Init
 
     private static boolean canSignPsbt(Wallet wallet, PSBT psbt) {
         if(ReclaimPsbt.isReclaimPsbt(psbt)) {
-            return ReclaimPsbt.canWalletSign(wallet, psbt);
+            return ReclaimPsbt.canWalletSign(wallet, psbt) || wallet.canSign(psbt);
         }
         return wallet.canSign(psbt);
     }
 
     private static boolean canSignAllPsbtInputs(Wallet wallet, PSBT psbt) {
         if(ReclaimPsbt.isReclaimPsbt(psbt)) {
-            return ReclaimPsbt.canWalletSign(wallet, psbt);
+            if(!ReclaimPsbt.canWalletSign(wallet, psbt)) {
+                return false;
+            }
+            long nonReclaimInputCount = psbt.getPsbtInputs().stream().filter(input -> !ReclaimPsbt.hasInputRecoveryPk(input)).count();
+            return nonReclaimInputCount == 0 || wallet.getSigningNodes(psbt, false).size() == nonReclaimInputCount;
         }
         return wallet.canSignAllInputs(psbt);
     }

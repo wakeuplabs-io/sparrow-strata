@@ -44,7 +44,7 @@
                         <Field text="Deposit to:">
                             <TextField fx:id="depositTo" styleClass="address-text-field">
                                 <tooltip>
-                                    <Tooltip text="Strata deposit address on Alpen"/>
+                                    <Tooltip text="Destination must be an Alpen address"/>
                                 </tooltip>
                             </TextField>
                         </Field>

@@ -34,6 +34,9 @@ import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
 import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimEntry;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimTransactionBuilder;
+import com.sparrowwallet.sparrow.strata.reclaim.RetryDepositTransactionBuilder;
 import com.sparrowwallet.sparrow.wallet.OptimizationStrategy;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import javafx.animation.PauseTransition;
@@ -212,6 +215,8 @@ public class DepositController extends WalletFormController implements Initializ
 
     private final StringProperty utxoLabelSelectionProperty = new SimpleStringProperty("");
 
+    private List<ReclaimEntry> retryReclaimEntries = List.of();
+
     private final ChangeListener<String> amountListener = new ChangeListener<>() {
         @Override
         public void changed(ObservableValue<? extends String> observable, String oldValue, String newValue) {
@@ -275,6 +280,7 @@ public class DepositController extends WalletFormController implements Initializ
                 getWalletForm().getWallet(),
                 (requestKey, depositLabel, recoveryKey) -> new DepositFeeService(
                         getWalletForm().getWallet(),
+                        retryReclaimEntries,
                         requestKey.descriptor(),
                         requestKey.amountSats(),
                         depositLabel,
@@ -462,7 +468,7 @@ public class DepositController extends WalletFormController implements Initializ
 
     private DepositFeeRequestKey buildFeeRequestKey(DepositDescriptor descriptor, long amountSats, double sliderFeeRate, Long userFee, String depositLabel) {
         OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
-        int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes);
+        int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes, retryReclaimEntries);
         return new DepositFeeRequestKey(descriptor, amountSats, sliderFeeRate, feeRateSection.getSelectionFeeRate(), userFee, depositLabel, optimizationStrategy, coinControlHash);
     }
 
@@ -617,7 +623,10 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private void updateMaxClearButtons(UtxoSelector utxoSelector, TxoFilter txoFilter) {
-        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+        if(!retryReclaimEntries.isEmpty()) {
+            int num = retryReclaimEntries.size();
+            utxoLabelSelectionProperty.set(" (" + num + " UTXO" + (num != 1 ? "s" : "") + " selected)");
+        } else if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
             int num = presetUtxoSelector.getPresetUtxos().size();
             String selection = " (" + num + " UTXO" + (num != 1 ? "s" : "") + " selected)";
             utxoLabelSelectionProperty.set(selection);
@@ -641,11 +650,26 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private long getAvailableBalanceSats() {
+        long retryReclaimedTotalSats = retryReclaimEntries.stream().mapToLong(ReclaimEntry::getValue).sum();
         UtxoSelector utxoSelector = utxoSelectorProperty.get();
         if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
-            return presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+            return retryReclaimedTotalSats + presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
         }
-        return getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        return retryReclaimedTotalSats + getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+    }
+
+    /**
+     * The number of wallet-owned inputs (i.e. excluding any retry-reclaim inputs, which are costed
+     * separately) that Max would actually spend from - every preset/coin-controlled UTXO, or the
+     * wallet's entire spendable set otherwise, mirroring {@link #getAvailableBalanceSats()} and the
+     * {@code MaxUtxoSelector} used to build the real transaction.
+     */
+    private int getMaxWalletInputCount() {
+        UtxoSelector utxoSelector = utxoSelectorProperty.get();
+        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+            return presetUtxoSelector.getPresetUtxos().size();
+        }
+        return getWalletForm().getWallet().getSpendableUtxos().size();
     }
 
     private void updatePrivacyAnalysis(WalletTransaction walletTransaction) {
@@ -793,6 +817,8 @@ public class DepositController extends WalletFormController implements Initializ
         utxoSelectorProperty.setValue(null);
         txoFilterProperty.setValue(null);
         excludedChangeNodes.clear();
+        retryReclaimEntries = List.of();
+        utxoLabelSelectionProperty.set("");
         previewCoordinator.resetRecoveryKey();
         clearWalletTransactionPreview();
         getWalletForm().setCreatedWalletTransaction(null);
@@ -1030,7 +1056,9 @@ public class DepositController extends WalletFormController implements Initializ
 
         Wallet wallet = getWalletForm().getWallet();
         long depFee = DepositFeeRates.calculateDepFee(sliderFeeRate);
-        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * sliderFeeRate);
+        //Max sweeps every available wallet UTXO into a single deposit input set (like Send's Max), so the
+        //reserved fee must cover all of them, not just one.
+        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * getMaxWalletInputCount() * sliderFeeRate);
         DepositDescriptor descriptor = getDepositDescriptor();
         if(descriptor == null) {
             descriptor = DepositDrtOutputVbytesEstimator.conservativeDescriptorForEstimate();
@@ -1038,7 +1066,9 @@ public class DepositController extends WalletFormController implements Initializ
         long outputVbytes = DepositDrtOutputVbytesEstimator.estimateOutputVbytes(descriptor);
         long outputFee = (long)Math.ceil(outputVbytes * sliderFeeRate);
         long changeCost = wallet.getCostOfChange(sliderFeeRate, feeRateSection.getMinimumFeeRate());
-        return depFee + inputFee + outputFee + changeCost;
+        long reclaimInputsFee = retryReclaimEntries.isEmpty() ? 0
+                : (long)Math.ceil(ReclaimTransactionBuilder.RECLAIM_INPUT_VBYTES * retryReclaimEntries.size() * sliderFeeRate);
+        return depFee + inputFee + outputFee + changeCost + reclaimInputsFee;
     }
 
     @FXML
@@ -1069,8 +1099,16 @@ public class DepositController extends WalletFormController implements Initializ
 
         addWalletTransactionNodes(walletTransaction);
         getWalletForm().setCreatedWalletTransaction(walletTransaction);
-        PSBT psbt = walletTransaction.createPSBT();
-        DepositPsbtOrdering.align(psbt, walletTransaction);
+
+        PSBT psbt;
+        if(!retryReclaimEntries.isEmpty()) {
+            List<ReclaimTransactionBuilder.ReclaimSpendInput> spendInputs =
+                    ReclaimTransactionBuilder.resolveSpendInputs(getWalletForm().getWallet(), retryReclaimEntries);
+            psbt = RetryDepositTransactionBuilder.createPsbt(getWalletForm().getWallet(), walletTransaction, spendInputs);
+        } else {
+            psbt = walletTransaction.createPSBT();
+            DepositPsbtOrdering.align(psbt, walletTransaction);
+        }
         EventManager.get().post(new ViewPSBTEvent(confirmButton.getScene().getWindow(), label.getText(), null, psbt));
     }
 
@@ -1234,6 +1272,33 @@ public class DepositController extends WalletFormController implements Initializ
             updateMaxButton();
             updateFee();
         }
+    }
+
+    /**
+     * Pre-fills the destination and amount for a retried deposit, without reusing any reclaimed UTXO
+     * as an input. Used as a fallback when no reclaim selection is available.
+     */
+    public void applyRetryPrefill(String destination, Long amountSats) {
+        if(destination != null && !destination.isBlank()) {
+            depositTo.setText(destination);
+        }
+        if(amountSats != null && amountSats > 0) {
+            setAmountValueSats(amountSats);
+        }
+        updateMaxButton();
+        updateFee();
+    }
+
+    /**
+     * Retries a deposit using the selected reclaimed UTXO(s) as coin-control input(s), spent via their
+     * recovery script path. Additional wallet UTXOs are drawn in automatically to cover any shortfall
+     * between the reclaimed value and the requested amount, or to pay fees. If the reclaimed value
+     * exceeds the requested amount, the excess is returned as ordinary wallet change.
+     */
+    public void applyRetrySelection(List<ReclaimEntry> reclaimEntries, String destination, Long amountSats) {
+        this.retryReclaimEntries = reclaimEntries == null ? List.of() : List.copyOf(reclaimEntries);
+        updateMaxClearButtons(utxoSelectorProperty.get(), txoFilterProperty.get());
+        applyRetryPrefill(destination, amountSats);
     }
 
     @Subscribe

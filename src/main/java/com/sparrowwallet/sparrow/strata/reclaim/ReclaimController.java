@@ -6,7 +6,6 @@ import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.Address;
 import com.sparrowwallet.drongo.psbt.PSBT;
-import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.sparrow.AppServices;
@@ -19,7 +18,10 @@ import com.sparrowwallet.sparrow.event.ViewPSBTEvent;
 import com.sparrowwallet.sparrow.event.WalletHistoryChangedEvent;
 import com.sparrowwallet.sparrow.control.ReclaimUtxosTreeTable;
 import com.sparrowwallet.sparrow.io.Config;
+import com.sparrowwallet.sparrow.strata.deposit.DepositAmountValidator;
 import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+import com.sparrowwallet.sparrow.strata.model.AlpenAddress;
+import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import javafx.collections.ListChangeListener;
 import javafx.event.ActionEvent;
@@ -34,6 +36,8 @@ import org.slf4j.LoggerFactory;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.ResourceBundle;
 import java.util.stream.Collectors;
 
@@ -121,10 +125,6 @@ public class ReclaimController extends WalletFormController implements Initializ
                 .collect(Collectors.toList());
     }
 
-    private List<BlockTransactionHashIndex> getSelectedUtxos() {
-        return getSelectedEntries().stream().map(ReclaimEntry::getHashIndex).collect(Collectors.toList());
-    }
-
     @FXML
     public void selectAll(ActionEvent event) {
         reclaimTable.getSelectionModel().selectAll();
@@ -138,8 +138,42 @@ public class ReclaimController extends WalletFormController implements Initializ
     @FXML
     public void retryDeposit(ActionEvent event) {
         Wallet wallet = getWalletForm().getWallet();
-        List<BlockTransactionHashIndex> spendingUtxos = getSelectedUtxos();
-        EventManager.get().post(new DepositActionEvent(wallet, spendingUtxos));
+        List<ReclaimEntry> selectedEntries = getSelectedEntries();
+        if(selectedEntries.isEmpty()) {
+            return;
+        }
+
+        long reclaimedTotal = selectedEntries.stream().mapToLong(ReclaimEntry::getValue).sum();
+        OptionalLong depositUtxoAmountSats = StrataBridgeParametersService.getInstance().getDepositUtxoAmountSats();
+        //Reclaimed value includes the old deposit's dep_fee, which isn't a valid deposit amount on its own -
+        //round down to the largest amount that's a valid multiple of the deposit denomination, absorbing the
+        //remainder as extra fee/dust. The user can still increase the amount; the new deposit form will pull
+        //in additional wallet UTXOs to cover the difference.
+        long amountSats = depositUtxoAmountSats.isPresent()
+                ? DepositAmountValidator.largestValidAmount(reclaimedTotal, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS)
+                : 0;
+        String destination = getCommonDestination(selectedEntries);
+        EventManager.get().post(new DepositActionEvent(wallet, selectedEntries, destination, amountSats));
+    }
+
+    /**
+     * A reclaimed UTXO's destination is only pre-filled when every selected UTXO was heading to the
+     * same place.
+     */
+    private String getCommonDestination(List<ReclaimEntry> entries) {
+        AlpenAddress destination = null;
+        for(ReclaimEntry entry : entries) {
+            Optional<AlpenAddress> entryDestination = entry.getDestinationAddress();
+            if(entryDestination.isEmpty()) {
+                return null;
+            }
+            if(destination == null) {
+                destination = entryDestination.get();
+            } else if(!destination.equals(entryDestination.get())) {
+                return null;
+            }
+        }
+        return destination == null ? null : destination.toHexString();
     }
 
     @FXML

@@ -27,14 +27,14 @@ public final class ReclaimPsbtSigner {
         }
 
         Map<PSBTInput, WalletNode> signingNodes = ReclaimPsbt.getSigningNodes(wallet, psbt);
-        if(signingNodes.size() != psbt.getPsbtInputs().size()) {
+        long reclaimInputCount = psbt.getPsbtInputs().stream().filter(ReclaimPsbt::hasInputRecoveryPk).count();
+        if(signingNodes.size() != reclaimInputCount) {
             throw new ReclaimException("Could not find wallet key to sign reclaim. Use the same software Taproot wallet that created the deposit.");
         }
 
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
                 .orElseGet(() -> StrataBridgeConstants.getBridgeOperatorPubkey(wallet.getNetwork()));
-        byte[] controlBlock = ReclaimControlBlock.forSingleLeafScript(bridgeOperatorPubkey);
 
         Transaction transaction = psbt.getTransaction();
         List<TransactionOutput> spentUtxos = psbt.getPsbtInputs().stream().map(PSBTInput::getUtxo).toList();
@@ -42,7 +42,7 @@ public final class ReclaimPsbtSigner {
 
         for(int i = 0; i < psbt.getPsbtInputs().size(); i++) {
             PSBTInput psbtInput = psbt.getPsbtInputs().get(i);
-            if(psbtInput.isSigned()) {
+            if(psbtInput.isSigned() || !ReclaimPsbt.hasInputRecoveryPk(psbtInput)) {
                 continue;
             }
 
@@ -50,6 +50,7 @@ public final class ReclaimPsbtSigner {
             byte[] recoveryPk = ReclaimPsbt.getInputRecoveryPk(psbtInput);
             int recoveryDelay = csvRecoveryDelay(transaction.getInputs().get(i).getSequenceNumber());
             Script tapscript = DepositRequestLockingScript.createRecoveryTapscript(recoveryPk, recoveryDelay);
+            byte[] controlBlock = ReclaimControlBlock.forSingleLeafScript(bridgeOperatorPubkey, tapscript);
             TransactionWitness witness = ReclaimTapscriptSigner.signInput(
                     transaction, i, spentUtxos, tapscript, controlBlock, keystore, signingNode);
 

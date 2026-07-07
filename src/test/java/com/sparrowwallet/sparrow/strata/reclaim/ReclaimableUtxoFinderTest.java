@@ -75,6 +75,7 @@ class ReclaimableUtxoFinderTest {
         assertEquals(depositHash, reclaimable.get(0).getHashIndex().getHash());
         assertEquals(1L, reclaimable.get(0).getHashIndex().getIndex());
         assertEquals(1_000_000_000L, reclaimable.get(0).getValue());
+        assertEquals(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE), reclaimable.get(0).getDestinationAddress().orElseThrow());
     }
 
     private static Wallet loadWallet() throws Exception {

@@ -147,6 +147,11 @@ public class StrataController extends WalletFormController implements Initializa
             if(event.getUtxos() != null && !event.getUtxos().isEmpty()) {
                 depositController.applySelectedUtxos(event.getUtxos());
             }
+            if(!event.getRetryReclaimEntries().isEmpty()) {
+                depositController.applyRetrySelection(event.getRetryReclaimEntries(), event.getPrefillDestination(), event.getPrefillAmountSats());
+            } else if(event.getPrefillDestination() != null || event.getPrefillAmountSats() != null) {
+                depositController.applyRetryPrefill(event.getPrefillDestination(), event.getPrefillAmountSats());
+            }
         }
     }
 

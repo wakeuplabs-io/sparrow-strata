@@ -115,7 +115,7 @@ public final class DepositOutputOrdering {
                 walletTransaction.getPayments(), reorderedOutputs, walletTransaction.getChangeMap(), walletTransaction.getFee());
     }
 
-    private static WalletTransaction.Output copyOutput(WalletTransaction.Output output, TransactionOutput transactionOutput) {
+    public static WalletTransaction.Output copyOutput(WalletTransaction.Output output, TransactionOutput transactionOutput) {
         if(output instanceof WalletTransaction.PaymentOutput paymentOutput) {
             return new WalletTransaction.PaymentOutput(transactionOutput, paymentOutput.getPayment());
         } else if(output instanceof WalletTransaction.ChangeOutput changeOutput) {

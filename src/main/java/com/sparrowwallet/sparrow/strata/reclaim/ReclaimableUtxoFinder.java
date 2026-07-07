@@ -12,6 +12,7 @@ import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
 import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+import com.sparrowwallet.sparrow.strata.model.AlpenAddress;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 
@@ -62,6 +63,7 @@ public final class ReclaimableUtxoFinder {
             if(recoveryPk.isEmpty()) {
                 continue;
             }
+            AlpenAddress destinationAddress = DepositRequestTagParser.parseDestinationAddress(transaction, magicBytes).orElse(null);
 
             for(int index = 0; index < transaction.getOutputs().size(); index++) {
                 TransactionOutput output = transaction.getOutputs().get(index);
@@ -87,7 +89,7 @@ public final class ReclaimableUtxoFinder {
                         blockTransaction.getFee(),
                         index,
                         output.getValue());
-                reclaimable.add(new ReclaimEntry(wallet, hashIndex, expectedAddress));
+                reclaimable.add(new ReclaimEntry(wallet, hashIndex, expectedAddress, destinationAddress));
             }
         }
 

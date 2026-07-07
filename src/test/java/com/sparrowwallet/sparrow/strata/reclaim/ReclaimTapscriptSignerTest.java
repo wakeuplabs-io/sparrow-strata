@@ -31,7 +31,7 @@ class ReclaimTapscriptSignerTest {
         byte[] bridgeInternalKey = Utils.hexToBytes(BRIDGE_INTERNAL_KEY_HEX);
         int recoveryDelay = 1;
         Script tapscript = DepositRequestLockingScript.createRecoveryTapscript(recoveryKeyPair.getXOnlyPublicKey(), recoveryDelay);
-        byte[] controlBlock = ReclaimControlBlock.forSingleLeafScript(bridgeInternalKey);
+        byte[] controlBlock = ReclaimControlBlock.forSingleLeafScript(bridgeInternalKey, tapscript);
 
         TransactionOutput utxo = new TransactionOutput(null, 1_000_000L,
                 DepositRequestLockingScript.createBridgeInAddress(recoveryKeyPair.getXOnlyPublicKey(), bridgeInternalKey, recoveryDelay).getOutputScript()) {
