@@ -568,3 +568,5 @@ extraJavaModuleInfo {
 kmpTorResourceFilterJar {
     keepTorCompilation("current","current")
 }
+
+apply from: 'gradle/gpg-overlay.gradle'
