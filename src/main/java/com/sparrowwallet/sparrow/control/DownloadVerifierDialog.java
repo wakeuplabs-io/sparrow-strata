@@ -9,6 +9,10 @@ import com.sparrowwallet.drongo.pgp.PGPVerificationResult;
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.glyphfont.GlyphUtils;
 import com.sparrowwallet.sparrow.net.VersionCheckService;
+import com.sparrowwallet.sparrow.release.ReleaseVerificationResult;
+import com.sparrowwallet.sparrow.release.ReleaseVerificationService;
+import com.sparrowwallet.sparrow.release.SignerStatus;
+import com.sparrowwallet.sparrow.release.SignerVerificationStatus;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -77,7 +81,9 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
     private final BooleanProperty manifestDisabled = new SimpleBooleanProperty();
     private final BooleanProperty publicKeyDisabled = new SimpleBooleanProperty();
 
-    private final Label signedBy;
+    private final VBox signersBox;
+    private final ScrollPane signersScrollPane;
+    private ReleaseVerificationResult releaseVerificationResult;
     private final Label releaseHash;
     private final Label releaseVerified;
     private final Hyperlink releaseLink;
@@ -115,13 +121,19 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
         resultsFieldset.setText("Results");
         resultsFieldset.setSpacing(10);
 
-        signedBy = new Label();
-        Field signedByField = setupResultField(signedBy, "Signed By");
+        signersBox = new VBox(6);
+        signersScrollPane = new ScrollPane(signersBox);
+        signersScrollPane.setFitToWidth(true);
+        signersScrollPane.setPrefViewportHeight(120);
+        signersScrollPane.setMaxHeight(160);
+        Field signedByField = setupResultField(signersScrollPane, "Signed By");
 
         releaseHash = new Label();
+        releaseHash.setGraphicTextGap(8);
         Field hashMatchedField = setupResultField(releaseHash, "Release Hash");
 
         releaseVerified = new Label();
+        releaseVerified.setGraphicTextGap(8);
         Field releaseVerifiedField = setupResultField(releaseVerified, "Verified");
 
         releaseLink = new Hyperlink("");
@@ -156,9 +168,8 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
                 manifest.set(null);
                 publicKey.set(null);
                 release.set(null);
-                signedBy.setText("");
-                signedBy.setGraphic(null);
-                signedBy.setTooltip(null);
+                releaseVerificationResult = null;
+                clearSignersBox();
                 releaseHash.setText("");
                 releaseHash.setGraphic(null);
                 releaseVerified.setText("");
@@ -276,28 +287,26 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
     private void verify() {
         manifestDisabled.set(false);
         publicKeyDisabled.set(false);
+        releaseVerificationResult = null;
 
         if(signature.get() == null || manifest.get() == null) {
             clearReleaseFields();
+            clearSignersBox();
             return;
         }
 
         PGPVerifyService pgpVerifyService = new PGPVerifyService(signature.get(), manifest.get(), publicKey.get());
         pgpVerifyService.setOnRunning(event -> {
-            signedBy.setText("Verifying...");
-            signedBy.setGraphic(GlyphUtils.getBusyGlyph());
-            signedBy.setTooltip(null);
+            clearSignersBox();
+            signersBox.getChildren().add(createSignerRow("Verifying...", GlyphUtils.getBusyGlyph(), null));
             clearReleaseFields();
         });
         pgpVerifyService.setOnSucceeded(event -> {
-            PGPVerificationResult result = pgpVerifyService.getValue();
+            ReleaseVerificationResult result = pgpVerifyService.getValue();
+            releaseVerificationResult = result;
+            displaySignerResults(result);
 
-            String message = result.userId() + " on " + signatureDateFormat.format(result.signatureTimestamp()) + (result.expired() ? " (key expired)" : "");
-            signedBy.setText(message);
-            signedBy.setGraphic(result.expired() ? GlyphUtils.getWarningGlyph() : GlyphUtils.getSuccessGlyph());
-            signedBy.setTooltip(new Tooltip(result.fingerprint()));
-
-            if(!result.expired() && result.keySource() != PGPKeySource.USER) {
+            if(result.bundledSigners().stream().anyMatch(signer -> signer.verificationResult() != null && signer.verificationResult().keySource() != PGPKeySource.USER && !signer.verificationResult().expired())) {
                 publicKeyDisabled.set(true);
             }
 
@@ -306,22 +315,92 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
                 releaseHash.setText("No hash required, signature signs release file directly");
                 releaseHash.setGraphic(GlyphUtils.getSuccessGlyph());
                 releaseHash.setTooltip(null);
-                releaseVerified.setText("Ready to install ");
-                releaseVerified.setGraphic(GlyphUtils.getSuccessGlyph());
-                releaseLink.setText(release.get().getName());
+                if(result.policySatisfied()) {
+                    releaseVerified.setText("Ready to install ");
+                    releaseVerified.setGraphic(GlyphUtils.getSuccessGlyph());
+                    releaseLink.setText(release.get().getName());
+                } else {
+                    releaseVerified.setText(result.getPolicyMessage());
+                    releaseVerified.setGraphic(GlyphUtils.getFailureGlyph());
+                    releaseLink.setText("");
+                }
             } else {
                 verifyManifest();
             }
         });
         pgpVerifyService.setOnFailed(event -> {
             Throwable e = event.getSource().getException();
-            signedBy.setText(getDisplayMessage(e));
-            signedBy.setGraphic(GlyphUtils.getFailureGlyph());
-            signedBy.setTooltip(null);
+            clearSignersBox();
+            signersBox.getChildren().add(createSignerRow(getDisplayMessage(e), GlyphUtils.getFailureGlyph(), null));
             clearReleaseFields();
         });
 
         pgpVerifyService.start();
+    }
+
+    private void displaySignerResults(ReleaseVerificationResult result) {
+        clearSignersBox();
+
+        for(SignerVerificationStatus signer : result.bundledSigners()) {
+            signersBox.getChildren().add(createSignerStatusRow(signer));
+        }
+
+        for(PGPVerificationResult additionalSignature : result.additionalSignatures()) {
+            String message = additionalSignature.userId() + " on " + signatureDateFormat.format(additionalSignature.signatureTimestamp()) + " (additional signer)";
+            signersBox.getChildren().add(createSignerRow(message, additionalSignature.expired() ? GlyphUtils.getWarningGlyph() : GlyphUtils.getSuccessGlyph(), new Tooltip(additionalSignature.fingerprint())));
+        }
+
+        for(SignerVerificationStatus invalidSignature : result.invalidSignatures()) {
+            String message = (invalidSignature.expectedUserId().isEmpty() ? "Invalid signature" : invalidSignature.expectedUserId()) + (invalidSignature.message() != null ? " — " + invalidSignature.message() : "");
+            signersBox.getChildren().add(createSignerRow(message, GlyphUtils.getFailureGlyph(), invalidSignature.expectedFingerprint().isEmpty() ? null : new Tooltip(invalidSignature.expectedFingerprint())));
+        }
+    }
+
+    private HBox createSignerStatusRow(SignerVerificationStatus signer) {
+        String message;
+        javafx.scene.Node graphic;
+        switch(signer.status()) {
+            case VALID -> {
+                PGPVerificationResult verificationResult = signer.verificationResult();
+                message = signer.expectedUserId() + " on " + signatureDateFormat.format(verificationResult.signatureTimestamp());
+                graphic = GlyphUtils.getSuccessGlyph();
+            }
+            case EXPIRED -> {
+                PGPVerificationResult verificationResult = signer.verificationResult();
+                message = signer.expectedUserId() + " on " + signatureDateFormat.format(verificationResult.signatureTimestamp()) + " (key expired)";
+                graphic = GlyphUtils.getWarningGlyph();
+            }
+            case MISSING -> {
+                message = signer.expectedUserId() + " — not signed";
+                graphic = GlyphUtils.getFailureGlyph();
+            }
+            default -> {
+                message = signer.expectedUserId() + " — invalid";
+                graphic = GlyphUtils.getFailureGlyph();
+            }
+        }
+
+        String tooltipText = signer.verificationResult() != null ? signer.verificationResult().fingerprint() : signer.expectedFingerprint();
+        if(signer.status() == SignerStatus.EXPIRED) {
+            tooltipText = tooltipText.isEmpty() ? "Expired keys do not satisfy release policy" : tooltipText + "\nExpired keys do not satisfy release policy";
+        }
+        return createSignerRow(message, graphic, tooltipText.isEmpty() ? null : new Tooltip(tooltipText));
+    }
+
+    private HBox createSignerRow(String message, javafx.scene.Node graphic, Tooltip tooltip) {
+        Label label = new Label(message);
+        label.setGraphic(graphic);
+        label.setGraphicTextGap(8);
+        if(tooltip != null) {
+            label.setTooltip(tooltip);
+        }
+        HBox row = new HBox(label);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private void clearSignersBox() {
+        signersBox.getChildren().clear();
     }
 
     private void clearReleaseFields() {
@@ -354,9 +433,15 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
                         releaseHash.setText("Matched manifest hash");
                         releaseHash.setGraphic(GlyphUtils.getSuccessGlyph());
                         releaseHash.setTooltip(new Tooltip(calculatedHash));
-                        releaseVerified.setText("Ready to install ");
-                        releaseVerified.setGraphic(GlyphUtils.getSuccessGlyph());
-                        releaseLink.setText(releaseFile.getName());
+                        if(releaseVerificationResult != null && releaseVerificationResult.policySatisfied()) {
+                            releaseVerified.setText("Ready to install ");
+                            releaseVerified.setGraphic(GlyphUtils.getSuccessGlyph());
+                            releaseLink.setText(releaseFile.getName());
+                        } else {
+                            releaseVerified.setText(releaseVerificationResult != null ? releaseVerificationResult.getPolicyMessage() : "Release signing policy not satisfied");
+                            releaseVerified.setGraphic(GlyphUtils.getFailureGlyph());
+                            releaseLink.setText("");
+                        }
                     } else if(manifestHash == null) {
                         releaseHash.setText("Could not find manifest hash for " + releaseFile.getName());
                         releaseHash.setGraphic(GlyphUtils.getFailureGlyph());
@@ -408,11 +493,10 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
         return field;
     }
 
-    private Field setupResultField(Label label, String title) {
+    private Field setupResultField(javafx.scene.Node content, String title) {
         Field field = new Field();
         field.setText(title + ":");
-        field.getInputs().add(label);
-        label.setGraphicTextGap(8);
+        field.getInputs().add(content);
         return field;
     }
 
@@ -711,7 +795,7 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
         }
     }
 
-    private static class PGPVerifyService extends Service<PGPVerificationResult> {
+    private static class PGPVerifyService extends Service<ReleaseVerificationResult> {
         private final File signature;
         private final File manifest;
         private final File publicKey;
@@ -723,15 +807,15 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
         }
 
         @Override
-        protected Task<PGPVerificationResult> createTask() {
+        protected Task<ReleaseVerificationResult> createTask() {
             return new Task<>() {
-                protected PGPVerificationResult call() throws IOException, PGPVerificationException {
+                protected ReleaseVerificationResult call() throws IOException, PGPVerificationException {
                     boolean detachedSignature = !manifest.equals(signature);
 
                     try(InputStream publicKeyStream = publicKey == null ? null : new FileInputStream(publicKey);
                         InputStream contentStream = new BufferedInputStream(new FileInputStream(manifest));
                         InputStream detachedSignatureStream = detachedSignature ? new FileInputStream(signature) : null) {
-                        return PGPUtils.verify(publicKeyStream, contentStream, detachedSignatureStream);
+                        return ReleaseVerificationService.verifyAll(publicKeyStream, contentStream, detachedSignatureStream);
                     }
                 }
             };

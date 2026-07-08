@@ -6,7 +6,7 @@ This document describes the GPG release signing and verification process for Spa
 
 Sparrow uses OpenPGP (GPG) signatures so users can verify that a release was published by a trusted entity. A release is considered valid when:
 
-1. The manifest signature verifies against at least one trusted public key.
+1. Every bundled trusted signer key in `config/gpg/` has a valid, non-expired signature on the manifest.
 2. The SHA-256 hash of the downloaded binary matches the corresponding entry in the manifest.
 
 ### What gets signed
@@ -31,22 +31,16 @@ When verifying a signature, the app tries the following key sources:
 2. **System GnuPG keyring** — `~/.gnupg/pubring.kbx` or `pubring.gpg`, or the path in `$GNUPGHOME` (`PGPKeySource.GPG`).
 3. **Bundled application keys** — everything packaged under `gpg/` in the application JAR (`PGPKeySource.APPLICATION`).
 
-One valid signature from any of these sources is sufficient. The result includes the signer's user ID, fingerprint, and whether the key was expired at the time of signing.
+`ReleaseVerificationService` parses every detached signature block in the combined `.asc` file, matches signatures to bundled keys, and enforces the release policy: **all** keys in `config/gpg/` must have signed the manifest with a valid, non-expired key. Additional valid signatures from user-supplied or GnuPG keys are shown but are not required for policy.
 
-After a valid signature is found, the app separately SHA-256 hashes the selected release file and compares it to the corresponding entry in the manifest. Both checks must pass for the release to be considered verified.
+After signatures pass the policy check, the app separately SHA-256 hashes the selected release file and compares it to the corresponding entry in the manifest. Both checks must pass for the release to be considered verified.
 
 ## Multi-employee signing (RFP)
 
-The RFP requires that users should be able to verify that a release was published and approved by **multiple employees** of Alpen Labs. The current implementation accepts any one valid signature from a trusted source and does not enforce a minimum number of distinct signers.
-
-### Proposed enhancement
-
-To address the multi-employee requirement while still publishing a single `.asc` file:
+The RFP requires that users should be able to verify that a release was published and approved by **multiple employees** of Alpen Labs. Strata enforces this as follows:
 
 1. **Combined signatures:** Multiple team members sign the same manifest. Their individual detached GPG signatures are concatenated into one `sparrow-<version>-manifest.txt.asc` file for download.
-2. **Verification policy (future work):** `PGPUtils.verify` currently returns after the first valid signature. A future change would collect all valid signatures from the combined `.asc` file and display each signer's status in the UI.
-
-This approach lets users verify with a single signature file while the application can eventually enforce a multi-signer policy programmatically.
+2. **Verification policy:** `ReleaseVerificationService.verifyAll()` collects every valid signature from the combined `.asc` file, lists each bundled signer with status (valid, expired, missing, or invalid), and requires signatures from **all** bundled keys before marking the release verified.
 
 ## Configuring signers
 
@@ -112,9 +106,9 @@ Users verify a release via **Tools → Verify Download**.
 
 The dialog reports:
 
-- **Signed By** — user ID and fingerprint from the matched key(s), and whether the key is bundled, from the local GnuPG keyring, or user-supplied.
+- **Signed By** — one row per bundled trusted signer showing user ID, fingerprint, timestamp, and status (valid, expired, missing, or invalid). Additional non-bundled signers are listed separately.
 - **Release Hash** — SHA-256 of the release file and whether it matched the manifest.
-- **Verified** — final pass/fail result and a link to open the installer.
+- **Verified** — final pass/fail result and a link to open the installer. Verification passes only when all bundled signers are valid and the release hash matches.
 
 The app auto-discovers related files when they are in the same directory: dropping any one of signature, manifest, or release file auto-fills the others when they follow the standard naming convention.
 
@@ -133,7 +127,7 @@ gpg --import AnotherTeamMember_another@example.com.asc
 gpg --verify sparrow-<version>-manifest.txt.asc sparrow-<version>-manifest.txt
 ```
 
-If multiple signatures are present in the `.asc` file, GnuPG verifies each one. Inspect the output to confirm the required trusted signers have signed the manifest.
+If multiple signatures are present in the `.asc` file, GnuPG verifies each one. Inspect the output to confirm that every trusted signer listed in `config/gpg/` has signed the manifest.
 
 #### 3. Verify release file integrity
 
@@ -158,6 +152,6 @@ Confirm that the named signers are part of the trusted release signers for this 
 
 ## Open questions
 
-1. Is multi-member verification enforcement required, or is a single valid signature from any trusted source sufficient?
+1. ~~Is multi-member verification enforcement required, or is a single valid signature from any trusted source sufficient?~~ **Resolved:** multi-member verification is required and enforced in-app (all bundled keys must sign).
 2. Is standard upstream Sparrow reproducibility (deterministic Linux/Windows builds, best-effort macOS) sufficient, or is further macOS unsigned-app reconstruction needed?
 3. For Apple releases, is an Apple Developer account already set up for code signing and distribution?

@@ -44,6 +44,10 @@ dependencies {
     //Any changes to the dependencies must be reflected in the module definitions below!
     implementation(project(':drongo'))
     implementation(project(':lark'))
+    // Direct use from ReleaseVerificationService; keep version in sync with drongo/build.gradle
+    implementation('org.pgpainless:pgpainless-core:1.7.7') {
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-common'
+    }
     implementation('com.google.guava:guava:33.5.0-jre')
     implementation('com.google.code.gson:gson:2.13.2')
     implementation('com.h2database:h2:2.1.214')
