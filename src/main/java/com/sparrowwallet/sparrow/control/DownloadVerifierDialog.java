@@ -59,7 +59,7 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
     private static final List<String> SIGNATURE_EXTENSIONS = List.of("asc", "sig", "gpg");
     private static final List<String> MANIFEST_EXTENSIONS = List.of("txt");
     private static final List<String> PUBLIC_KEY_EXTENSIONS = List.of("asc");
-    private static final List<String> MACOS_RELEASE_EXTENSIONS = List.of("dmg");
+    private static final List<String> MACOS_RELEASE_EXTENSIONS = List.of("dmg", "zip");
     private static final List<String> WINDOWS_RELEASE_EXTENSIONS = List.of("exe", "msi", "zip");
     private static final List<String> LINUX_RELEASE_EXTENSIONS = List.of("deb", "rpm", "tar.gz");
     private static final List<String> DISK_IMAGE_EXTENSIONS = List.of("img", "bin", "dfu");
@@ -592,6 +592,18 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
             }
         }
 
+        if(OsType.getCurrent() == OsType.MACOS) {
+            for(File file : manifestMap.keySet()) {
+                String fileName = file.getName().toLowerCase(Locale.ROOT);
+                if(fileName.contains("-unsigned-") && fileName.endsWith(".zip")) {
+                    File releaseFile = new File(manifestFile.getParent(), file.getName());
+                    if(releaseFile.exists()) {
+                        return releaseFile;
+                    }
+                }
+            }
+        }
+
         List<String> releaseExtensions = getReleaseFileExtensions();
         List<List<String>> extensionLists = List.of(releaseExtensions, DISK_IMAGE_EXTENSIONS, ARCHIVE_EXTENSIONS, List.of(""));
 
@@ -629,7 +641,7 @@ public class DownloadVerifierDialog extends Dialog<ButtonBar.ButtonData> {
         String arch = System.getProperty("os.arch");
         switch(osType) {
             case MACOS -> {
-                return "Sparrow-" + version + "-" + arch;
+                return "Sparrow-" + version + "-unsigned-" + arch;
             }
             case WINDOWS -> {
                 return "Sparrow-" + version;

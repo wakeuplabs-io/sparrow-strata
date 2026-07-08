@@ -288,7 +288,9 @@ jlink {
             imageOptions += ['--icon', 'src/main/deploy/package/linux/Sparrow.png', '--resource-dir', 'src/main/deploy/package/linux/']
         }
         if(os.macOsX) {
-            installerOptions += ['--mac-sign', '--mac-signing-key-user-name', 'Craig Raw (UPLVMSK9D7)']
+            if(project.hasProperty('macSign')) {
+                installerOptions += ['--mac-sign', '--mac-signing-key-user-name', 'Craig Raw (UPLVMSK9D7)']
+            }
             imageOptions += ['--icon', 'src/main/deploy/package/macos/sparrow.icns', '--resource-dir', 'src/main/deploy/package/macos/']
             installerType = "dmg"
         }
@@ -372,6 +374,17 @@ tasks.register('packageZipDistribution', Zip) {
     preserveFileTimestamps = os.macOsX
     from("$buildDir/jpackage/") {
         include "Sparrow/**"
+        include "Sparrow.app/**"
+    }
+}
+
+tasks.register('packageUnsignedMacDistribution', Zip) {
+    onlyIf { os.macOsX }
+    dependsOn 'jpackage'
+    archiveFileName = "Sparrow-${version}-unsigned-${releaseArch}.zip"
+    destinationDirectory = file("$buildDir/jpackage")
+    preserveFileTimestamps = true
+    from("$buildDir/jpackage/") {
         include "Sparrow.app/**"
     }
 }
