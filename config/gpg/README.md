@@ -45,4 +45,4 @@ The output should list only the team keys you added — not upstream Sparrow key
 
 ## Signing a release
 
-See [docs/release-verification.md](../../docs/release-verification.md) for the full signing and verification process.
+See [Team release process](../../docs/release-verification.md#team-release-process) in `docs/release-verification.md` for the full coordinator and signer workflow (CI build, manifest, multi-signer GPG, GitHub Release).

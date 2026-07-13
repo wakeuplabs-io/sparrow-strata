@@ -1,6 +1,6 @@
 # Release Verification
 
-This document describes the GPG release signing and verification process for Sparrow (Strata Edition). It covers how releases are signed by the team, how trusted public keys are bundled into the application, and how end users verify downloads.
+This document describes the GPG release signing and verification process for Sparrow (Strata Edition). It covers the [team release process](#team-release-process) (CI build through GitHub Release), how trusted public keys are bundled into the application, and how end users verify downloads.
 
 ## How verification works
 
@@ -63,33 +63,115 @@ Instead of modifying the `drongo` submodule, Strata uses a build-time overlay to
 ./gradlew :drongo:jar :drongo:listBundledGpgKeys
 ```
 
-#### Key management
+### Team release process
 
-1. **Generate a GPG keypair for each team member.** Each signer needs their own RSA 4096 (or Ed25519) key. The key identity (name and email) is shown in the "Signed By" field during verification.
+Releases are a coordinated team effort. One person acts as **release coordinator**; every bundled signer approves the same manifest from their own machine. Private signing keys never enter CI, the repo, or shared drives.
 
-2. **Export each public key:**
+#### Roles
+
+| Role | Responsibility |
+|------|----------------|
+| **Release coordinator** | Triggers the CI build, downloads artifacts, assembles the release file set, generates the manifest, collects detached signatures, and publishes the GitHub Release. |
+| **Signers** (one per key in `config/gpg/`) | Generate and hold their own GPG keypair; provide only their **public** key for bundling; verify the manifest, then sign it locally and return the detached `.asc` to the coordinator. |
+
+#### Security principles
+
+- **Private keys stay local.** Signers generate keypairs on their own hardware. Secret keys are never committed, uploaded to GitHub, or shared with the coordinator.
+- **Only public keys are shared.** Each signer exports an armored `.asc` public key and sends it to the coordinator through an agreed channel (e.g. company email, 1:1 chat). Confirm fingerprints out-of-band before adding a key to `config/gpg/`.
+- **Sign the manifest, not each binary.** GPG signatures cover `sparrow-<version>-manifest.txt` only. Binary integrity is enforced by the SHA-256 hashes listed in that manifest.
+- **Signers verify before signing.** Each signer should read the manifest and confirm the listed filenames and hashes match the binaries the coordinator distributed. Signing without review approves whatever is in the manifest.
+- **Apple code signing is separate.** macOS `.dmg` notarization uses repo secrets in CI (`MACOS_*`). That is unrelated to Alpen GPG release signing.
+
+#### 1. Onboard signers (one-time, or when the roster changes)
+
+Each authorized signer, on their own machine:
 
 ```bash
+# Generate a key (RSA 4096 or Ed25519); protect it with a strong passphrase
+gpg --full-generate-key
+
+# Export only the public key
 gpg --armor --export team@email.com > Firstname_Lastname_team@email.com.asc
+
+# Share the fingerprint for out-of-band verification
+gpg --fingerprint team@email.com
 ```
 
-3. **Place keys in `config/gpg/`.** Use the naming convention `Firstname_Lastname_email.asc`.
-
-4. **Sign a release.** At release time, authorized team members sign the manifest. Combine signatures into one file for publishing:
+The signer sends **only** `Firstname_Lastname_team@email.com.asc` to the release coordinator. The coordinator opens a PR that adds the file to [`config/gpg/`](../config/gpg/) (naming convention: `Firstname_Lastname_email.asc`), removes any placeholder test keys, and confirms the overlay:
 
 ```bash
-# Create the manifest (sha256sum on all release files)
-sha256sum sparrow-*.deb sparrow-*.rpm sparrow-*.tar.gz sparrow-*.exe sparrow-*.dmg > sparrow-<version>-manifest.txt
-
-# Each authorized team member signs the manifest
-gpg --detach-sign --armor --output manifest.txt.alice.asc sparrow-<version>-manifest.txt
-gpg --detach-sign --armor --output manifest.txt.bob.asc sparrow-<version>-manifest.txt
-
-# Combine all individual signatures into one file
-cat manifest.txt.alice.asc manifest.txt.bob.asc > sparrow-<version>-manifest.txt.asc
-
-# Publish binaries, manifest, and combined signature (e.g. as GitHub Release assets)
+./gradlew :drongo:jar :drongo:listBundledGpgKeys
 ```
+
+Other team members verify the PR fingerprint matches what the signer communicated before merging. The application that ships in the release must be built **after** the updated public keys are on the release branch.
+
+#### 2. Build platform binaries (GitHub Actions)
+
+The coordinator triggers the [**Package** workflow](../.github/workflows/package.yaml):
+
+1. Go to **Actions → Package → Run workflow**.
+2. Select the **release branch or tag** to build (workflow YAML and source both come from that ref).
+3. Wait for all matrix jobs to finish: Windows, Linux x86_64, Linux arm64, macOS Intel, macOS Apple Silicon.
+
+The workflow builds installers with `./gradlew jpackage`, packages per-platform archives, and uploads **GitHub Actions artifacts** (not a GitHub Release). Download every artifact from the run page:
+
+| Artifact | Contents |
+|----------|----------|
+| `Sparrow Build - Windows AMD64` | `Sparrow-<version>.msi`, `Sparrow-<version>.zip` |
+| `Sparrow Build - Linux X64` / `ARM64` | `.deb`, `.rpm`, `sparrowwallet-<version>-<arch>.tar.gz` |
+| `Sparrow Build - Linux … Headless` | `sparrowserver-*` equivalents |
+| `Sparrow Build - macOS <arch> Unsigned` | `Sparrow-<version>-unsigned-<arch>.zip` |
+| `Sparrow Build - macOS <arch> Signed` | `Sparrow-<version>-x86_64.dmg`, `Sparrow-<version>-aarch64.dmg` (only if `MACOS_*` secrets are configured) |
+
+Artifacts are retained per the repository's Actions retention policy; download them promptly.
+
+#### 3. Assemble the release (coordinator)
+
+The coordinator collects all downloaded artifacts into a single directory (e.g. `release/sparrow-<version>/`), keeping **exact filenames** as produced by CI. Decide up front which files will be published — the manifest must list every published binary and nothing else.
+
+A typical Strata release mirrors [upstream Sparrow releases](https://github.com/sparrowwallet/sparrow/releases): Windows installer and zip, Linux GUI and headless packages for both architectures, and macOS `.dmg` files (plus unsigned mac zips if you ship them).
+
+#### 4. Generate the manifest (coordinator)
+
+From the release directory:
+
+```bash
+sha256sum Sparrow-*.msi Sparrow-*.zip Sparrow-*.dmg Sparrow-*-unsigned-*.zip \
+  sparrowwallet_* sparrowwallet-* sparrowserver_* sparrowserver-* \
+  > sparrow-<version>-manifest.txt
+```
+
+Adjust globs to match the files you are actually publishing. Each line must be `<sha256hex>  <filename>` (two spaces between hash and name, as `sha256sum` produces).
+
+Distribute `sparrow-<version>-manifest.txt` and the binaries (or secure links to them) to every signer for review.
+
+#### 5. Collect signatures (each signer)
+
+Each signer, on their own machine, verifies the manifest and signs it:
+
+```bash
+# Review hashes and filenames before signing
+cat sparrow-<version>-manifest.txt
+
+# Detached signature (uses the signer's local private key)
+gpg --detach-sign --armor --output Firstname_Lastname.asc sparrow-<version>-manifest.txt
+```
+
+Each signer returns **only** their `Firstname_Lastname.asc` to the coordinator. The coordinator concatenates every detached signature into one file:
+
+```bash
+cat signer-one.asc signer-two.asc > sparrow-<version>-manifest.txt.asc
+```
+
+Order does not matter. The combined file must contain one valid signature per bundled key in `config/gpg/`.
+
+#### 6. Publish the GitHub Release (coordinator)
+
+1. Create a release tag (e.g. `v2.5.3-strata.1`) pointing at the built commit.
+2. Open a **GitHub Release** for that tag.
+3. Upload **all published binaries**, plus `sparrow-<version>-manifest.txt` and `sparrow-<version>-manifest.txt.asc`.
+
+Users download the binary they need plus the manifest and signature files, then verify via **Tools → Verify Download** (see [User verification](#user-verification) below).
 
 ## User verification
 
@@ -149,9 +231,3 @@ gpg: Good signature from "Bob Jones (Developer) <bob@example.com>" [full]
 ```
 
 Confirm that the named signers are part of the trusted release signers for this distribution.
-
-## Open questions
-
-1. ~~Is multi-member verification enforcement required, or is a single valid signature from any trusted source sufficient?~~ **Resolved:** multi-member verification is required and enforced in-app (all bundled keys must sign).
-2. Is standard upstream Sparrow reproducibility (deterministic Linux/Windows builds, best-effort macOS) sufficient, or is further macOS unsigned-app reconstruction needed?
-3. For Apple releases, is an Apple Developer account already set up for code signing and distribution?

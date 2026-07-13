@@ -9,7 +9,7 @@ Documentation to create and verify a build of the project against the released b
 
 ### [Release verification](release-verification.md)
 
-Documentation for GPG release signing, bundled trusted keys, and end-user download verification.
+Documentation for the team release process, GPG signing, bundled trusted keys, and end-user download verification.
 
 
 
