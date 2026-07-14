@@ -120,15 +120,12 @@ public class ReleaseVerificationService {
 
                 MessageMetadata metadata = verificationStream.getMetadata();
                 List<SignatureVerification> verifiedSignatures = new ArrayList<>(metadata.getVerifiedDetachedSignatures());
-                if(verifiedSignatures.isEmpty()) {
-                    verifiedSignatures.addAll(metadata.getVerifiedSignatures());
-                }
+                verifiedSignatures.addAll(metadata.getVerifiedSignatures());
 
                 for(SignatureVerification signatureVerification : verifiedSignatures) {
                     PGPVerificationResult result = toVerificationResult(signatureVerification, userProvidedKeyRing, userPgpPublicKeyRingCollection, appPgpPublicKeyRingCollection);
-                    if(result != null) {
+                    if(result != null && verifiedByKeyId.putIfAbsent(result.keyId(), result) == null) {
                         verifiedResults.add(result);
-                        verifiedByKeyId.putIfAbsent(result.keyId(), result);
                     }
                 }
 
@@ -284,7 +281,10 @@ public class ReleaseVerificationService {
             for(String keyFile : keyFiles) {
                 try(InputStream pubkeyStream = PGPUtils.class.getResourceAsStream("/" + PGPUtils.APPLICATION_KEYRING_DIR + keyFile)) {
                     if(pubkeyStream != null) {
-                        rings.add(PGPainless.readKeyRing().publicKeyRing(pubkeyStream));
+                        PGPPublicKeyRing keyRing = PGPainless.readKeyRing().publicKeyRing(pubkeyStream);
+                        if(keyRing != null) {
+                            rings.add(keyRing);
+                        }
                     }
                 }
             }
