@@ -27,8 +27,29 @@ jobs:
         run: ./gradlew -v
       - name: Build with Gradle
         run: ./gradlew jpackage
-      - name: Codesign, package and notarize macOS distribution
+      - name: Detect macOS signing availability
         if: ${{ runner.os == 'macOS' }}
+        id: macos_signing
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+          MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+          MACOS_NOTARIZATION_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+        run: |
+          if [ -n "$MACOS_CERTIFICATE" ] && [ -n "$MACOS_CERTIFICATE_PASSWORD" ] && \
+             [ -n "$MACOS_NOTARIZATION_APPLE_ID" ] && [ -n "$MACOS_NOTARIZATION_TEAM_ID" ] && \
+             [ -n "$MACOS_NOTARIZATION_PASSWORD" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Package unsigned macOS distribution
+        if: ${{ runner.os == 'macOS' }}
+        run: ./gradlew packageUnsignedMacDistribution
+      - name: Codesign, package and notarize macOS distribution
+        if: ${{ runner.os == 'macOS' && steps.macos_signing.outputs.available == 'true' }}
         uses: sparrowwallet/github-actions/codesign-macos@v1
         with:
           app-name: Sparrow
@@ -46,7 +67,22 @@ jobs:
       - name: Repackage Linux deb distribution
         if: ${{ runner.os == 'Linux' }}
         run: ./repackage.sh
+      - name: Upload macOS unsigned artifact
+        if: ${{ runner.os == 'macOS' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: Sparrow Build - macOS ${{ runner.arch }} Unsigned
+          path: build/jpackage/Sparrow-*-unsigned-*.zip
+      - name: Upload macOS signed artifact
+        if: ${{ runner.os == 'macOS' && steps.macos_signing.outputs.available == 'true' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: Sparrow Build - macOS ${{ runner.arch }} Signed
+          path: |
+            build/jpackage/Sparrow-*-x86_64.dmg
+            build/jpackage/Sparrow-*-aarch64.dmg
       - name: Upload Artifact
+        if: ${{ runner.os != 'macOS' }}
         uses: actions/upload-artifact@v6
         with:
           name: Sparrow Build - ${{ runner.os }} ${{ runner.arch }}
