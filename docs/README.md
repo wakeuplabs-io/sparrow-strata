@@ -7,5 +7,9 @@ The documentation here is mainly developer-related resources.
 
 Documentation to create and verify a build of the project against the released binaries.
 
+### [Release verification](release-verification.md)
+
+Documentation for the team release process, GPG signing, bundled trusted keys, and end-user download verification.
+
 
 

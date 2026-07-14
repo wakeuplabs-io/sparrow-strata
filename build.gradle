@@ -44,6 +44,10 @@ dependencies {
     //Any changes to the dependencies must be reflected in the module definitions below!
     implementation(project(':drongo'))
     implementation(project(':lark'))
+    // Direct use from ReleaseVerificationService; keep version in sync with drongo/build.gradle
+    implementation('org.pgpainless:pgpainless-core:1.7.7') {
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-common'
+    }
     implementation('com.google.guava:guava:33.5.0-jre')
     implementation('com.google.code.gson:gson:2.13.2')
     implementation('com.h2database:h2:2.1.214')
@@ -284,7 +288,9 @@ jlink {
             imageOptions += ['--icon', 'src/main/deploy/package/linux/Sparrow.png', '--resource-dir', 'src/main/deploy/package/linux/']
         }
         if(os.macOsX) {
-            installerOptions += ['--mac-sign', '--mac-signing-key-user-name', 'Craig Raw (UPLVMSK9D7)']
+            if(project.hasProperty('macSign')) {
+                installerOptions += ['--mac-sign', '--mac-signing-key-user-name', 'Craig Raw (UPLVMSK9D7)']
+            }
             imageOptions += ['--icon', 'src/main/deploy/package/macos/sparrow.icns', '--resource-dir', 'src/main/deploy/package/macos/']
             installerType = "dmg"
         }
@@ -368,6 +374,17 @@ tasks.register('packageZipDistribution', Zip) {
     preserveFileTimestamps = os.macOsX
     from("$buildDir/jpackage/") {
         include "Sparrow/**"
+        include "Sparrow.app/**"
+    }
+}
+
+tasks.register('packageUnsignedMacDistribution', Zip) {
+    onlyIf { os.macOsX }
+    dependsOn 'jpackage'
+    archiveFileName = "Sparrow-${version}-unsigned-${releaseArch}.zip"
+    destinationDirectory = file("$buildDir/jpackage")
+    preserveFileTimestamps = true
+    from("$buildDir/jpackage/") {
         include "Sparrow.app/**"
     }
 }
@@ -568,3 +585,5 @@ extraJavaModuleInfo {
 kmpTorResourceFilterJar {
     keepTorCompilation("current","current")
 }
+
+apply from: 'gradle/gpg-overlay.gradle'

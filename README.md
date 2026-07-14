@@ -97,9 +97,9 @@ Sparrow is licensed under the Apache 2 software licence.
 
 ## GPG Key
 
-The Sparrow release binaries here and on [sparrowwallet.com](https://sparrowwallet.com/download/) are signed using [craigraw's GPG key](https://keybase.io/craigraw):  
-Fingerprint: D4D0D3202FC06849A257B38DE94618334C674B40  
-64-bit: E946 1833 4C67 4B40
+Sparrow (Strata Edition) releases are signed by Alpen Labs team members using GPG. Trusted public keys are bundled into the application from [`config/gpg/`](config/gpg/) at build time.
+
+See [docs/release-verification.md](docs/release-verification.md) for signing procedures, key management, and instructions on verifying downloads in the app or from the command line.
 
 ## Credit
 

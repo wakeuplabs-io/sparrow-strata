@@ -1,0 +1,43 @@
+def teamGpgDir = rootProject.file('config/gpg')
+
+project(':drongo') {
+    def generatedGpgDir = layout.buildDirectory.dir('generated-resources/gpg')
+
+    tasks.register('overlayTeamGpgKeys', Sync) {
+        from(teamGpgDir) {
+            include '*.asc'
+        }
+        into(generatedGpgDir)
+        doFirst {
+            def keys = teamGpgDir.listFiles()?.findAll { it.isFile() && it.name.endsWith('.asc') }
+            if(!keys) {
+                logger.warn("No GPG public keys found in ${teamGpgDir}. Release verification will not work with bundled keys.")
+            }
+        }
+    }
+
+    afterEvaluate {
+        tasks.named('processResources', ProcessResources).configure {
+            dependsOn 'overlayTeamGpgKeys'
+            exclude 'gpg/**'
+            from(generatedGpgDir) {
+                into 'gpg'
+                include '*.asc'
+            }
+        }
+    }
+
+    tasks.register('listBundledGpgKeys') {
+        dependsOn tasks.named('jar')
+        doLast {
+            def jarFile = tasks.named('jar').get().archiveFile.get().asFile
+            def keys = zipTree(jarFile).matching { include 'gpg/*.asc' }.files.collect { "gpg/${it.name}" }.sort()
+            if(keys.isEmpty()) {
+                println 'No bundled GPG keys found in drongo.jar'
+            } else {
+                println 'Bundled GPG keys in drongo.jar:'
+                keys.each { println "  ${it}" }
+            }
+        }
+    }
+}

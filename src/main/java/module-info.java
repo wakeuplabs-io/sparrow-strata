@@ -11,6 +11,9 @@ open module com.sparrowwallet.sparrow {
     requires org.fxmisc.richtext;
     requires tornadofx.controls;
     requires com.sparrowwallet.drongo;
+    requires org.pgpainless.core;
+    requires org.bouncycastle.pg;
+    requires org.bouncycastle.provider;
     requires com.google.common;
     requires com.google.zxing;
     requires com.google.zxing.javase;
