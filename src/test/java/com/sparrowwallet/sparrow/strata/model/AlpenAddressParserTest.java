@@ -1,5 +1,7 @@
 package com.sparrowwallet.sparrow.strata.model;
 
+import com.sparrowwallet.sparrow.strata.StrataNetwork;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.Utils;
 import org.junit.jupiter.api.Test;
@@ -29,7 +31,7 @@ class AlpenAddressParserTest {
 
     @Test
     void parseErc7930WithAlpenTestnetChainReference() {
-        byte[] chainReference = Erc7930Address.encodeChainReference(AlpenConstants.ALPEN_TESTNET_CHAIN_ID);
+        byte[] chainReference = Erc7930Address.encodeChainReference(StrataNetwork.ALPEN_TESTNET_CHAIN_ID);
         String interoperable = "0x00010000"
                 + String.format("%02x", chainReference.length)
                 + Utils.bytesToHex(chainReference).toLowerCase()
@@ -41,7 +43,7 @@ class AlpenAddressParserTest {
 
     @Test
     void rejectsBitcoinTestnetWalletForErc7930ChainReference() {
-        byte[] chainReference = Erc7930Address.encodeChainReference(AlpenConstants.ALPEN_TESTNET_CHAIN_ID);
+        byte[] chainReference = Erc7930Address.encodeChainReference(StrataNetwork.ALPEN_TESTNET_CHAIN_ID);
         String interoperable = "0x00010000"
                 + String.format("%02x", chainReference.length)
                 + Utils.bytesToHex(chainReference).toLowerCase()

@@ -1,13 +1,14 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.ScriptChunk;
 import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
 import com.sparrowwallet.drongo.protocol.Transaction;
 import com.sparrowwallet.sparrow.strata.deposit.Sps50Encoder;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.model.AlpenAddress;
-import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 
 import java.util.Arrays;
@@ -99,8 +100,8 @@ final class DepositRequestTagParser {
         }
 
         if(tag.length < MODERN_MIN_TAG_LEN
-                || tag[4] != (byte)StrataBridgeConstants.BRIDGE_V1_SUBPROTOCOL_ID
-                || tag[5] != (byte)StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE) {
+                || tag[4] != (byte)StrataBridgeProtocol.BRIDGE_V1_SUBPROTOCOL_ID
+                || tag[5] != (byte)StrataBridgeProtocol.DEPOSIT_REQUEST_TX_TYPE) {
             return Optional.empty();
         }
 

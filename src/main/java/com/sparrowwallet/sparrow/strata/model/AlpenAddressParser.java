@@ -1,5 +1,7 @@
 package com.sparrowwallet.sparrow.strata.model;
 
+import com.sparrowwallet.sparrow.strata.StrataNetwork;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.drongo.Network;
 
 public final class AlpenAddressParser {
@@ -28,7 +30,7 @@ public final class AlpenAddressParser {
         if(chainId == null) {
             return;
         }
-        int expected = AlpenConstants.expectedAlpenChainId(bitcoinNetwork);
+        int expected = StrataNetwork.expectedAlpenChainId(bitcoinNetwork);
         if(chainId != expected) {
             throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
         }

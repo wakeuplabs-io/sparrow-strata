@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.crypto.ECKey;
 import com.sparrowwallet.drongo.protocol.Script;
@@ -19,7 +20,7 @@ import com.sparrowwallet.sparrow.strata.deposit.DepositFeeRates;
 import com.sparrowwallet.sparrow.strata.deposit.DepositOutputOrdering;
 import com.sparrowwallet.sparrow.strata.deposit.DepositPsbtOrdering;
 import com.sparrowwallet.sparrow.strata.deposit.DepositRequestService;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.deposit.WalletRecoveryKey;
 import com.sparrowwallet.sparrow.strata.deposit.WalletRecoveryKeyResolver;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
@@ -87,7 +88,7 @@ public final class RetryDepositTransactionBuilder {
 
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
-                .orElseGet(() -> StrataBridgeConstants.getBridgeOperatorPubkey(wallet.getNetwork()));
+                .orElseGet(() -> StrataBridgeProtocol.getBridgeOperatorPubkey(wallet.getNetwork()));
 
         int reclaimStartIndex = psbt.getPsbtInputs().size() - spendInputs.size();
         for(int i = 0; i < spendInputs.size(); i++) {

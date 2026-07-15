@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.model;
 
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import java.util.Arrays;
 
 public final class Erc7930Address {

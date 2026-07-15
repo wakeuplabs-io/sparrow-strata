@@ -1,5 +1,7 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.StrataNetwork;
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.Utils;
@@ -32,7 +34,7 @@ import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
-import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.reclaim.ReclaimEntry;
 import com.sparrowwallet.sparrow.strata.reclaim.ReclaimTransactionBuilder;
@@ -358,8 +360,8 @@ public class DepositController extends WalletFormController implements Initializ
 
     private void updateBridgeLinkVisibility() {
         Network network = Network.get();
-        String statusUrl = StrataBridgeConstants.getBridgeStatusUrl(network);
-        String withdrawalUrl = StrataBridgeConstants.getBridgeWithdrawalUrl(network);
+        String statusUrl = StrataNetwork.getBridgeStatusUrl(network);
+        String withdrawalUrl = StrataNetwork.getBridgeWithdrawalUrl(network);
         depositStatusLink.setVisible(statusUrl != null);
         depositStatusLink.setManaged(statusUrl != null);
         bridgeWithdrawalsLink.setVisible(withdrawalUrl != null);
@@ -368,12 +370,12 @@ public class DepositController extends WalletFormController implements Initializ
 
     @FXML
     public void openDepositStatus(ActionEvent event) {
-        openBridgeUrl(StrataBridgeConstants.getBridgeStatusUrl(Network.get()));
+        openBridgeUrl(StrataNetwork.getBridgeStatusUrl(Network.get()));
     }
 
     @FXML
     public void openBridgeWithdrawals(ActionEvent event) {
-        openBridgeUrl(StrataBridgeConstants.getBridgeWithdrawalUrl(Network.get()));
+        openBridgeUrl(StrataNetwork.getBridgeWithdrawalUrl(Network.get()));
     }
 
     private void openBridgeUrl(String url) {
@@ -500,7 +502,7 @@ public class DepositController extends WalletFormController implements Initializ
         if(depositUtxoAmountSats.isEmpty()) {
             return Optional.of("Deposit denomination is not available for this network");
         }
-        return DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        return DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeProtocol.MAX_DEPOSIT_SATS);
     }
 
     private ValidationResult validateDepositAddress(Control control, String value) {
@@ -738,7 +740,7 @@ public class DepositController extends WalletFormController implements Initializ
             spendableBalance = Math.max(0, balanceSats - reservedForFees);
         }
 
-        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeProtocol.MAX_DEPOSIT_SATS);
         if(maxAmount > 0) {
             setAmountValueSats(maxAmount);
             if(selectMaxToggle) {

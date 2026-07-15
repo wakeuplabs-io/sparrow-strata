@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.Utils;
@@ -17,7 +18,7 @@ import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
 import com.sparrowwallet.sparrow.strata.deposit.DrtHeaderAux;
 import com.sparrowwallet.sparrow.strata.deposit.RecoveryKeyPair;
 import com.sparrowwallet.sparrow.strata.deposit.Sps50Encoder;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.model.Eip55Address;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
@@ -39,13 +40,14 @@ class ReclaimableUtxoFinderTest {
 
     @BeforeEach
     void setUp() {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         Network.set(Network.MAINNET);
         StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(true);
     }
 
     @AfterEach
     void tearDown() {
-        StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(false);
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         Network.set(Network.MAINNET);
     }
 
@@ -53,12 +55,12 @@ class ReclaimableUtxoFinderTest {
     void findsUnspentBridgeInOutputFromWalletHistory() throws Exception {
         Wallet wallet = loadWallet();
         RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.MAINNET);
+        byte[] bridgeOperatorPubkey = StrataBridgeProtocol.getBridgeOperatorPubkey(Network.MAINNET);
         int recoveryDelay = StrataBridgeParametersService.getInstance().getRecoveryDelay();
 
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKeyPair.getXOnlyPublicKey(), descriptor.encodeToBytes());
-        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), StrataBridgeConstants.MAGIC_BYTES);
+        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), StrataBridgeProtocol.MAGIC_BYTES);
         P2TRAddress bridgeInAddress = DepositRequestLockingScript.createBridgeInAddress(
                 recoveryKeyPair.getXOnlyPublicKey(), bridgeOperatorPubkey, recoveryDelay);
 

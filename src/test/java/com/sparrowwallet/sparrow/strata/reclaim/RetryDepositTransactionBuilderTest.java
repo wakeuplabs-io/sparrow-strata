@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.P2TRAddress;
@@ -23,7 +24,7 @@ import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
 import com.sparrowwallet.sparrow.strata.deposit.DrtHeaderAux;
 import com.sparrowwallet.sparrow.strata.deposit.RecoveryKeyPair;
 import com.sparrowwallet.sparrow.strata.deposit.Sps50Encoder;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.deposit.WalletRecoveryKey;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.model.Eip55Address;
@@ -46,24 +47,25 @@ class RetryDepositTransactionBuilderTest {
     private static final String BRIDGE_PRECOMPILE = "5400000000000000000000000000000000000001";
     private static final long RECLAIMED_UTXO_VALUE = 500_000_000L;
     private static final long WALLET_UTXO_VALUE = 2_000_000_000L;
-    private static final long NEW_DEPOSIT_AMOUNT = StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS;
+    private static final long NEW_DEPOSIT_AMOUNT = StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS;
 
     private RecoveryKeyPair recoveryKeyPair;
     private byte[] bridgeOperatorPubkey;
 
     @BeforeEach
     void setUp() {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         Network.set(Network.MAINNET);
         StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(true);
         StrataBridgeParametersService.setParametersForTesting(
-                StrataBridgeConstants.MAGIC_BYTES, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS, StrataBridgeConstants.RECOVER_DELAY);
+                StrataBridgeProtocol.MAGIC_BYTES, StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS, StrataBridgeProtocol.RECOVER_DELAY);
         recoveryKeyPair = RecoveryKeyPair.generate();
-        bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.MAINNET);
+        bridgeOperatorPubkey = StrataBridgeProtocol.getBridgeOperatorPubkey(Network.MAINNET);
     }
 
     @AfterEach
     void tearDown() {
-        StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(false);
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         StrataBridgeParametersService.clearParametersForTesting();
         Network.set(Network.MAINNET);
     }
@@ -129,9 +131,9 @@ class RetryDepositTransactionBuilderTest {
     private ReclaimEntry createReclaimEntry(Wallet wallet) {
         DepositDescriptor oldDescriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryKeyPair.getXOnlyPublicKey(), oldDescriptor.encodeToBytes());
-        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), StrataBridgeConstants.MAGIC_BYTES);
+        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), StrataBridgeProtocol.MAGIC_BYTES);
         P2TRAddress bridgeInAddress = DepositRequestLockingScript.createBridgeInAddress(
-                recoveryKeyPair.getXOnlyPublicKey(), bridgeOperatorPubkey, StrataBridgeConstants.RECOVER_DELAY);
+                recoveryKeyPair.getXOnlyPublicKey(), bridgeOperatorPubkey, StrataBridgeProtocol.RECOVER_DELAY);
 
         Transaction depositTx = new Transaction();
         depositTx.addOutput(0L, opReturnScript);

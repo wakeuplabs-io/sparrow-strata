@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.address.Address;
 import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.Transaction;
@@ -12,7 +13,7 @@ import com.sparrowwallet.drongo.wallet.BlockTransaction;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.deposit.WalletRecoveryKeyResolver;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
@@ -67,7 +68,7 @@ public final class ReclaimTransactionBuilder {
 
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
-                .orElseGet(() -> StrataBridgeConstants.getBridgeOperatorPubkey(wallet.getNetwork()));
+                .orElseGet(() -> StrataBridgeProtocol.getBridgeOperatorPubkey(wallet.getNetwork()));
 
         long totalInput = spendInputs.stream().mapToLong(input -> input.utxo().getValue()).sum();
         long fee = estimateFee(spendInputs.size(), feeRate);

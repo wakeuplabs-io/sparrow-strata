@@ -1,7 +1,8 @@
 package com.sparrowwallet.sparrow.strata.net;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +31,7 @@ class StrataBridgeKeyVerificationServiceTest {
         Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
-        String hardcoded = StrataBridgeConstants.getBridgeOperatorPubkeyHex(Network.get());
+        String hardcoded = StrataBridgeProtocol.getBridgeOperatorPubkeyHex(Network.get());
         try(StrataBridgeKeyMockServer server = new StrataBridgeKeyMockServer(hardcoded)) {
             StrataBridgeKeyVerificationService.setVerificationUrlForTesting(server.getUrl());
 
@@ -53,7 +54,7 @@ class StrataBridgeKeyVerificationServiceTest {
             awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH);
 
             assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH, service.getStatus());
-            assertEquals(StrataBridgeConstants.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
+            assertEquals(StrataBridgeProtocol.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
         }
     }
 
@@ -68,7 +69,7 @@ class StrataBridgeKeyVerificationServiceTest {
         awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE);
 
         assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE, service.getStatus());
-        assertEquals(StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
+        assertEquals(StrataBridgeProtocol.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
     }
 
     @Test

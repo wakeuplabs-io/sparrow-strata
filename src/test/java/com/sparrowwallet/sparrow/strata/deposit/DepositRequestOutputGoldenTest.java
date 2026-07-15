@@ -1,10 +1,11 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.address.P2TRAddress;
 import com.sparrowwallet.drongo.protocol.Script;
-import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.model.Eip55Address;
 import org.junit.jupiter.api.AfterEach;
@@ -64,7 +65,7 @@ class DepositRequestOutputGoldenTest {
   void cliSignetDepositBridgeScriptUsesConfigOperatorKey() {
     Network.set(Network.SIGNET);
     byte[] recoveryPk = Utils.hexToBytes("1e5d27860127d89ceed37603a1a732c5f60eeacce28b61a8a53c503de2914616");
-    byte[] bridgeInternalKey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.SIGNET);
+    byte[] bridgeInternalKey = StrataBridgeProtocol.getBridgeOperatorPubkey(Network.SIGNET);
     Script bridgeInScript = DepositRequestLockingScript.createLockingScript(recoveryPk, bridgeInternalKey, 1008);
     assertEquals(
         "5120ba179213c2177c3e2164e58af5c822976f5196f487c26cb161e9f36c29558456",
@@ -87,7 +88,7 @@ class DepositRequestOutputGoldenTest {
 
     Script bridgeInScript =
         DepositRequestLockingScript.createLockingScript(
-            recoveryPk, bridgeInternalKey, StrataBridgeConstants.RECOVER_DELAY);
+            recoveryPk, bridgeInternalKey, StrataBridgeProtocol.RECOVER_DELAY);
     assertEquals(
         EXPECTED_BRIDGE_IN_SCRIPT_HEX,
         Utils.bytesToHex(bridgeInScript.getProgram()),
@@ -95,7 +96,7 @@ class DepositRequestOutputGoldenTest {
 
     P2TRAddress bridgeInAddress =
         DepositRequestLockingScript.createBridgeInAddress(
-            recoveryPk, bridgeInternalKey, StrataBridgeConstants.RECOVER_DELAY);
+            recoveryPk, bridgeInternalKey, StrataBridgeProtocol.RECOVER_DELAY);
     assertEquals(
         EXPECTED_BRIDGE_IN_ADDRESS_MAINNET,
         bridgeInAddress.getAddress(Network.MAINNET),

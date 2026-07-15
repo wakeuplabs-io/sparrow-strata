@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.P2TRAddress;
@@ -36,17 +37,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DepositRequestServiceTest {
     private static final String BRIDGE_PRECOMPILE = "5400000000000000000000000000000000000001";
     private static final long UTXO_VALUE = 2_000_000_000L;
-    private static final long DEPOSIT_AMOUNT = StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS;
+    private static final long DEPOSIT_AMOUNT = StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS;
 
     @BeforeEach
     void setUp() {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         Network.set(Network.MAINNET);
         StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(true);
     }
 
     @AfterEach
     void tearDown() {
-        StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(false);
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         StrataBridgeParametersService.clearParametersForTesting();
         Network.set(Network.MAINNET);
     }
@@ -147,10 +149,10 @@ class DepositRequestServiceTest {
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         byte[] recoveryPk = recoveryKey.getXOnlyPublicKey();
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.MAINNET);
+        byte[] bridgeOperatorPubkey = StrataBridgeProtocol.getBridgeOperatorPubkey(Network.MAINNET);
 
         StrataBridgeParametersService.setParametersForTesting(
-                StrataBridgeConstants.MAGIC_BYTES, DEPOSIT_AMOUNT, 504);
+                StrataBridgeProtocol.MAGIC_BYTES, DEPOSIT_AMOUNT, 504);
 
         DepositRequestService service = new DepositRequestService(
                 wallet,
@@ -181,7 +183,7 @@ class DepositRequestServiceTest {
         P2TRAddress expectedAddress = DepositRequestLockingScript.createBridgeInAddress(
                 recoveryPk, bridgeOperatorPubkey, StrataBridgeParametersService.getInstance().getRecoveryDelay());
         P2TRAddress defaultDelayAddress = DepositRequestLockingScript.createBridgeInAddress(
-                recoveryPk, bridgeOperatorPubkey, StrataBridgeConstants.RECOVER_DELAY);
+                recoveryPk, bridgeOperatorPubkey, StrataBridgeProtocol.RECOVER_DELAY);
 
         assertNotEquals(defaultDelayAddress.getAddress(), expectedAddress.getAddress());
         assertEquals(expectedAddress.getAddress(), bridgeOutput.getPayment().getAddress().toString());

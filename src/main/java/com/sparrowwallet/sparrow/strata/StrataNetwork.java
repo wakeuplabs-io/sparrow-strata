@@ -1,21 +1,17 @@
-package com.sparrowwallet.sparrow.strata.deposit;
+package com.sparrowwallet.sparrow.strata;
 
 import com.sparrowwallet.drongo.Network;
-import com.sparrowwallet.drongo.Utils;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 
-import java.nio.charset.StandardCharsets;
-import java.util.OptionalLong;
+public final class StrataNetwork {
+    /** Alpen testnet (EVM chain id 20310 / 0x4f56). */
+    public static final int ALPEN_TESTNET_CHAIN_ID = 20310;
 
-public final class StrataBridgeConstants {
-    public static final byte[] MAGIC_BYTES = "ALPN".getBytes(StandardCharsets.US_ASCII);
-    public static final byte[] TESTNET_MAGIC_BYTES = "alpn".getBytes(StandardCharsets.US_ASCII);
-    public static final int BRIDGE_V1_SUBPROTOCOL_ID = 2;
-    public static final int DEPOSIT_REQUEST_TX_TYPE = 0;
-    public static final int DEPOSIT_TX_TYPE = 1;
-    public static final int RECOVER_DELAY = 1008;
-    public static final int MAX_DRT_DESTINATION_BYTES = 42;
-    public static final long MAX_DEPOSIT_SATS = 100L * 100_000_000L;
-    public static final long DEPOSIT_UTXO_AMOUNT_SATS = 1_000_000_000L;
+    /**
+     * Placeholder until Alpen mainnet chain ID is published. ERC-7930 addresses with an explicit
+     * chain reference on bitcoin mainnet must match this value once finalized.
+     */
+    public static final int ALPEN_MAINNET_CHAIN_ID = 0;
 
     // TODO: Update these before release.
     public static final String MAINNET_STRATA_RPC_URL = "https://rpc.alpenlabs.io";
@@ -29,16 +25,11 @@ public final class StrataBridgeConstants {
     public static final String MAINNET_BRIDGE_WITHDRAWAL_URL = "https://TODO";
     public static final String TESTNET_BRIDGE_WITHDRAWAL_URL = "https://TODO";
 
-    public static final String BRIDGE_KEY_MISMATCH_MESSAGE = "Bridge key mismatch. Please update Sparrow (Strata Edition) and try again.";
-    public static final String BRIDGE_KEY_UNAVAILABLE_MESSAGE = "Bridge key unavailable. Please try again later.";
-
     // Bridge key verification URL is intentionally hardcoded in code (not config/params).
     // TODO: Update this before release.
     private static final String BRIDGE_KEY_VERIFICATION_URL = "http://127.0.0.1:8765";
-    private static final String TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX = "50eaad3a98150e584555f1e4a479be2d8ccd8927a4ec3df075d3c65161f47295";
-    private static final String MAINNET_BRIDGE_OPERATOR_PUBKEY_HEX = "50eaad3a98150e584555f1e4a479be2d8ccd8927a4ec3df075d3c65161f47295";
 
-    private StrataBridgeConstants() {
+    private StrataNetwork() {
     }
 
     // Alpen testnet uses Bitcoin public signet as its L1 counterpart.
@@ -46,18 +37,14 @@ public final class StrataBridgeConstants {
         return network == Network.SIGNET;
     }
 
-    public static OptionalLong getDepositUtxoAmountSats(Network network) {
-        if(network == Network.MAINNET || isAlpenTestnetNetwork(network)) {
-            return OptionalLong.of(DEPOSIT_UTXO_AMOUNT_SATS);
+    public static int expectedAlpenChainId(Network bitcoinNetwork) {
+        if(Network.MAINNET.equals(bitcoinNetwork)) {
+            return ALPEN_MAINNET_CHAIN_ID;
         }
-        return OptionalLong.empty();
-    }
-
-    public static byte[] getMagicBytesFallback(Network network) {
-        if(isAlpenTestnetNetwork(network)) {
-            return TESTNET_MAGIC_BYTES;
+        if(Network.SIGNET.equals(bitcoinNetwork)) {
+            return ALPEN_TESTNET_CHAIN_ID;
         }
-        return MAGIC_BYTES;
+        throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
     }
 
     public static String getStrataRpcUrl(Network network) {
@@ -102,23 +89,5 @@ public final class StrataBridgeConstants {
             return TESTNET_BRIDGE_WITHDRAWAL_URL;
         }
         return null;
-    }
-
-    public static String getBridgeOperatorPubkeyHex(Network network) {
-        if(network == Network.MAINNET) {
-            return MAINNET_BRIDGE_OPERATOR_PUBKEY_HEX;
-        }
-        if(isAlpenTestnetNetwork(network)) {
-            return TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX;
-        }
-        return null;
-    }
-
-    public static byte[] getBridgeOperatorPubkey(Network network) {
-        String hex = getBridgeOperatorPubkeyHex(network);
-        if(hex == null) {
-            throw new IllegalStateException("Strata bridge operator public key is not configured for " + network);
-        }
-        return Utils.hexToBytes(hex);
     }
 }
