@@ -3,7 +3,8 @@ package com.sparrowwallet.sparrow.strata.model;
 import com.sparrowwallet.drongo.Network;
 
 public final class AlpenConstants {
-    public static final int ALPEN_TESTNET_CHAIN_ID = 8150;
+    /** Alpen testnet (EVM chain id 20310 / 0x4f56). */
+    public static final int ALPEN_TESTNET_CHAIN_ID = 20310;
 
     /**
      * Placeholder until Alpen mainnet chain ID is published. ERC-7930 addresses with an explicit
@@ -27,6 +28,12 @@ public final class AlpenConstants {
     }
 
     public static int expectedAlpenChainId(Network bitcoinNetwork) {
-        return Network.MAINNET.equals(bitcoinNetwork) ? ALPEN_MAINNET_CHAIN_ID : ALPEN_TESTNET_CHAIN_ID;
+        if(Network.MAINNET.equals(bitcoinNetwork)) {
+            return ALPEN_MAINNET_CHAIN_ID;
+        }
+        if(Network.SIGNET.equals(bitcoinNetwork)) {
+            return ALPEN_TESTNET_CHAIN_ID;
+        }
+        throw new IllegalArgumentException(INVALID_ALPEN_ADDRESS_MESSAGE);
     }
 }

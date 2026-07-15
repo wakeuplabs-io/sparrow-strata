@@ -19,7 +19,9 @@ public final class StrataBridgeConstants {
 
     // TODO: Update these before release.
     public static final String MAINNET_STRATA_RPC_URL = "https://rpc.alpenlabs.io";
-    public static final String TESTNET_STRATA_RPC_URL = "https://rpc.testnet.alpenlabs.io";
+    public static final String TESTNET_STRATA_RPC_URL = "https://alpen.testnet.alpen.org";
+    public static final String MAINNET_EXPLORER_URL = "https://explorer.testnet.alpen.org";
+    public static final String TESTNET_EXPLORER_URL = "https://explorer.testnet.alpen.org";
 
     // TODO: Update these before release.
     public static final String MAINNET_BRIDGE_STATUS_URL = "https://status.alpenlabs.io/bridge";
@@ -39,15 +41,20 @@ public final class StrataBridgeConstants {
     private StrataBridgeConstants() {
     }
 
+    // Alpen testnet uses Bitcoin public signet as its L1 counterpart.
+    public static boolean isAlpenTestnetNetwork(Network network) {
+        return network == Network.SIGNET;
+    }
+
     public static OptionalLong getDepositUtxoAmountSats(Network network) {
-        if(network == Network.MAINNET || network == Network.TESTNET || network == Network.SIGNET) {
+        if(network == Network.MAINNET || isAlpenTestnetNetwork(network)) {
             return OptionalLong.of(DEPOSIT_UTXO_AMOUNT_SATS);
         }
         return OptionalLong.empty();
     }
 
     public static byte[] getMagicBytesFallback(Network network) {
-        if(network == Network.TESTNET || network == Network.SIGNET) {
+        if(isAlpenTestnetNetwork(network)) {
             return TESTNET_MAGIC_BYTES;
         }
         return MAGIC_BYTES;
@@ -57,14 +64,21 @@ public final class StrataBridgeConstants {
         if(network == Network.MAINNET) {
             return MAINNET_STRATA_RPC_URL;
         }
-        if(network == Network.TESTNET) {
+        if(isAlpenTestnetNetwork(network)) {
             return TESTNET_STRATA_RPC_URL;
         }
         return null;
     }
 
+    public static String getAlpenExplorerUrl(Network network) {
+        if(isAlpenTestnetNetwork(network)) {
+            return TESTNET_EXPLORER_URL;
+        }
+        return MAINNET_EXPLORER_URL;
+    }
+
     public static String getBridgeKeyVerificationUrl(Network network) {
-        if(network == Network.MAINNET || network == Network.TESTNET || network == Network.SIGNET) {
+        if(network == Network.MAINNET || isAlpenTestnetNetwork(network)) {
             return BRIDGE_KEY_VERIFICATION_URL;
         }
         return null;
@@ -74,7 +88,7 @@ public final class StrataBridgeConstants {
         if(network == Network.MAINNET) {
             return MAINNET_BRIDGE_STATUS_URL;
         }
-        if(network == Network.TESTNET || network == Network.SIGNET) {
+        if(isAlpenTestnetNetwork(network)) {
             return TESTNET_BRIDGE_STATUS_URL;
         }
         return null;
@@ -84,7 +98,7 @@ public final class StrataBridgeConstants {
         if(network == Network.MAINNET) {
             return MAINNET_BRIDGE_WITHDRAWAL_URL;
         }
-        if(network == Network.TESTNET || network == Network.SIGNET) {
+        if(isAlpenTestnetNetwork(network)) {
             return TESTNET_BRIDGE_WITHDRAWAL_URL;
         }
         return null;
@@ -94,7 +108,7 @@ public final class StrataBridgeConstants {
         if(network == Network.MAINNET) {
             return MAINNET_BRIDGE_OPERATOR_PUBKEY_HEX;
         }
-        if(network == Network.TESTNET || network == Network.SIGNET) {
+        if(isAlpenTestnetNetwork(network)) {
             return TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX;
         }
         return null;

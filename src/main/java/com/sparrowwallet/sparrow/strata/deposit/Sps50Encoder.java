@@ -17,8 +17,8 @@ public final class Sps50Encoder {
     }
 
     /**
-     * Signet/testnet bridge nodes currently expect the legacy tag: magic + recovery_pk + raw EVM
-     * destination, with the bridge-in P2TR output at index 0 and OP_RETURN at index 1.
+     * Alpen testnet bridge nodes expect the legacy tag: magic + recovery_pk +
+     * raw EVM destination, with the bridge-in P2TR output at index 0 and OP_RETURN at index 1.
      */
     public static boolean usesLegacyTagFormat(byte[] magicBytes) {
         return Arrays.equals(magicBytes, StrataBridgeConstants.TESTNET_MAGIC_BYTES);

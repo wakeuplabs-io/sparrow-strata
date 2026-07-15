@@ -42,13 +42,9 @@ class DepositTransactionFeeEstimatorTest {
         Network.set(Network.MAINNET);
         double mainnetVsize = DepositTransactionFeeEstimator.getDepositTransactionVirtualSize();
 
-        Network.set(Network.TESTNET);
-        double testnetVsize = DepositTransactionFeeEstimator.getDepositTransactionVirtualSize();
-
         Network.set(Network.SIGNET);
         double signetVsize = DepositTransactionFeeEstimator.getDepositTransactionVirtualSize();
 
-        assertEquals(mainnetVsize, testnetVsize, 0.0);
         assertEquals(mainnetVsize, signetVsize, 0.0);
     }
 

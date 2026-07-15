@@ -27,7 +27,7 @@ class StrataBridgeKeyVerificationServiceTest {
 
     @Test
     void reportsVerifiedOnMatch() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         String hardcoded = StrataBridgeConstants.getBridgeOperatorPubkeyHex(Network.get());
@@ -43,7 +43,7 @@ class StrataBridgeKeyVerificationServiceTest {
 
     @Test
     void reportsMismatchOnMismatch() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         try(StrataBridgeKeyMockServer server = new StrataBridgeKeyMockServer("00")) {
@@ -59,7 +59,7 @@ class StrataBridgeKeyVerificationServiceTest {
 
     @Test
     void reportsUnavailableOnUnreachable() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         StrataBridgeKeyVerificationService.setVerificationUrlForTesting("http://127.0.0.1:1/");
@@ -73,7 +73,7 @@ class StrataBridgeKeyVerificationServiceTest {
 
     @Test
     void allowsDepositsWhenChecksDisabled() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         service.setChecksDisabled(true);
