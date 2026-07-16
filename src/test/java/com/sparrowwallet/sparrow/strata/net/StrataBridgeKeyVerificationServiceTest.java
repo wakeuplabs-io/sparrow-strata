@@ -54,7 +54,7 @@ class StrataBridgeKeyVerificationServiceTest {
             awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH);
 
             assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH, service.getStatus());
-            assertEquals(StrataBridgeProtocol.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
+            assertEquals(StrataBridgeKeyVerificationService.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
         }
     }
 
@@ -69,7 +69,7 @@ class StrataBridgeKeyVerificationServiceTest {
         awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE);
 
         assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE, service.getStatus());
-        assertEquals(StrataBridgeProtocol.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
+        assertEquals(StrataBridgeKeyVerificationService.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
     }
 
     @Test

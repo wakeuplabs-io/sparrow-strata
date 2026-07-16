@@ -22,12 +22,12 @@ public final class Erc7930Address {
 
     public static Erc7930Address parse(String input) {
         if(input == null) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         String normalized = AlpenAddress.normalizeHex(input);
         if(normalized.length() < 12 || normalized.length() % 2 != 0) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         byte[] bytes = AlpenAddress.parseHexBytes(normalized, normalized.length() / 2);
@@ -36,28 +36,28 @@ public final class Erc7930Address {
         int version = readUint16(bytes, offset);
         offset += 2;
         if(version != AlpenConstants.ERC7930_VERSION) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         int chainType = readUint16(bytes, offset);
         offset += 2;
         if(chainType != AlpenConstants.ERC7930_EVM_CHAIN_TYPE) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         if(offset >= bytes.length) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         int chainReferenceLength = bytes[offset] & 0xFF;
         offset += 1;
 
         if(chainReferenceLength == 0 && bytes.length <= offset + 1) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         if(offset + chainReferenceLength > bytes.length) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         Integer chainId = null;
@@ -68,17 +68,17 @@ public final class Erc7930Address {
         }
 
         if(offset >= bytes.length) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         int addressLength = bytes[offset] & 0xFF;
         offset += 1;
         if(addressLength != AlpenConstants.EVM_ADDRESS_BYTES) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         if(offset + addressLength > bytes.length || offset + addressLength != bytes.length) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         byte[] addressBytes = Arrays.copyOfRange(bytes, offset, offset + addressLength);
@@ -99,7 +99,7 @@ public final class Erc7930Address {
 
     private static int decodeChainId(byte[] chainReference) {
         if(chainReference.length == 0 || chainReference.length > 4) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
         int value = 0;
         for(byte b : chainReference) {

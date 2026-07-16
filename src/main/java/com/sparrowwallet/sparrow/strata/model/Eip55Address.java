@@ -15,28 +15,28 @@ public final class Eip55Address {
 
     public static AlpenAddress parse(String input) {
         if(input == null) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         String trimmed = input.trim();
         if(trimmed.isEmpty() || looksLikeBitcoinAddress(trimmed)) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         boolean hasPrefix = trimmed.regionMatches(true, 0, "0x", 0, 2);
         String hexBody = hasPrefix ? trimmed.substring(2) : trimmed;
         if(hexBody.length() != HEX_LENGTH) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         for(int i = 0; i < hexBody.length(); i++) {
             if(!AlpenAddress.isHexDigit(hexBody.charAt(i))) {
-                throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+                throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
             }
         }
 
         if(hasMixedCase(hexBody) && !isValidChecksum(trimmed)) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         return new AlpenAddress(AlpenAddress.parseHexBytes(hexBody, AlpenConstants.EVM_ADDRESS_BYTES));

@@ -1,10 +1,11 @@
 package com.sparrowwallet.sparrow.strata.model;
 
 import com.sparrowwallet.sparrow.strata.StrataNetwork;
-import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.drongo.Network;
 
 public final class AlpenAddressParser {
+    public static final String INVALID_ALPEN_ADDRESS_MESSAGE = "Destination must be an Alpen address.";
+
     private AlpenAddressParser() {
     }
 
@@ -32,7 +33,7 @@ public final class AlpenAddressParser {
         }
         int expected = StrataNetwork.expectedAlpenChainId(bitcoinNetwork);
         if(chainId != expected) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(INVALID_ALPEN_ADDRESS_MESSAGE);
         }
     }
 }

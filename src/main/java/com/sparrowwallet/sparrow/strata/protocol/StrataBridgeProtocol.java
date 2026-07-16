@@ -17,10 +17,6 @@ public final class StrataBridgeProtocol {
     public static final int MAX_DRT_DESTINATION_BYTES = 42;
     public static final long MAX_DEPOSIT_SATS = 100L * 100_000_000L;
     public static final long DEPOSIT_UTXO_AMOUNT_SATS = 1_000_000_000L;
-
-    public static final String BRIDGE_KEY_MISMATCH_MESSAGE = "Bridge key mismatch. Please update Sparrow (Strata Edition) and try again.";
-    public static final String BRIDGE_KEY_UNAVAILABLE_MESSAGE = "Bridge key unavailable. Please try again later.";
-
     private static final String TESTNET_BRIDGE_OPERATOR_PUBKEY_HEX = "50eaad3a98150e584555f1e4a479be2d8ccd8927a4ec3df075d3c65161f47295";
     private static final String MAINNET_BRIDGE_OPERATOR_PUBKEY_HEX = "50eaad3a98150e584555f1e4a479be2d8ccd8927a4ec3df075d3c65161f47295";
 

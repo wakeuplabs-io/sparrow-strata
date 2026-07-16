@@ -11,8 +11,6 @@ public final class AlpenConstants {
 
     public static final int EVM_ADDRESS_BYTES = 20;
 
-    public static final String INVALID_ALPEN_ADDRESS_MESSAGE = "Destination must be an Alpen address.";
-
     private AlpenConstants() {
     }
 }

@@ -34,7 +34,6 @@ import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
-import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.reclaim.ReclaimEntry;
 import com.sparrowwallet.sparrow.strata.reclaim.ReclaimTransactionBuilder;
@@ -527,7 +526,7 @@ public class DepositController extends WalletFormController implements Initializ
         } catch(IllegalArgumentException e) {
             String message = e.getMessage();
             if(message == null || message.isBlank() || "Deposit address is required".equals(message)) {
-                message = AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE;
+                message = AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE;
             }
             return new DepositAddressEvaluation(null, message);
         }
@@ -1082,7 +1081,7 @@ public class DepositController extends WalletFormController implements Initializ
 
         DepositDescriptor descriptor = getDepositDescriptor();
         if(descriptor == null) {
-            AppServices.showErrorDialog("Invalid deposit", AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            AppServices.showErrorDialog("Invalid deposit", AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
             return;
         }
 

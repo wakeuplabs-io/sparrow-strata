@@ -1,22 +1,17 @@
 package com.sparrowwallet.sparrow.strata;
 
 import com.sparrowwallet.drongo.Network;
-import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
 
 public final class StrataNetwork {
-    /** Alpen testnet (EVM chain id 20310 / 0x4f56). */
-    public static final int ALPEN_TESTNET_CHAIN_ID = 20310;
-
-    /**
-     * Placeholder until Alpen mainnet chain ID is published. ERC-7930 addresses with an explicit
-     * chain reference on bitcoin mainnet must match this value once finalized.
-     */
+    //  TODO: Update these before release.
+    public static final int ALPEN_TESTNET_CHAIN_ID = 8150;
     public static final int ALPEN_MAINNET_CHAIN_ID = 0;
 
     // TODO: Update these before release.
     public static final String MAINNET_STRATA_RPC_URL = "https://rpc.alpenlabs.io";
-    public static final String TESTNET_STRATA_RPC_URL = "https://alpen.testnet.alpen.org";
-    public static final String MAINNET_EXPLORER_URL = "https://explorer.testnet.alpen.org";
+    public static final String TESTNET_STRATA_RPC_URL = "https://rpc.testnet.alpenlabs.io";
+    public static final String MAINNET_EXPLORER_URL = "https://explorer.alpen.org";
     public static final String TESTNET_EXPLORER_URL = "https://explorer.testnet.alpen.org";
 
     // TODO: Update these before release.
@@ -44,7 +39,7 @@ public final class StrataNetwork {
         if(Network.SIGNET.equals(bitcoinNetwork)) {
             return ALPEN_TESTNET_CHAIN_ID;
         }
-        throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+        throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
     }
 
     public static String getStrataRpcUrl(Network network) {

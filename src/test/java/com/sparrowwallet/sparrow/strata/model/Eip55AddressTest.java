@@ -1,6 +1,5 @@
 package com.sparrowwallet.sparrow.strata.model;
 
-import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,14 +27,14 @@ class Eip55AddressTest {
     void rejectsInvalidChecksum() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> Eip55Address.parse("0xd8dA6BF26964aF9D7eeEd9e03E53415D37aA96046"));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test
     void rejectsBitcoinAddress() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> Eip55Address.parse("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test

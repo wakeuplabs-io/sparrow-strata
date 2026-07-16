@@ -51,7 +51,7 @@ class AlpenAddressParserTest {
                 + ADDRESS_HEX;
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> AlpenAddressParser.parse(interoperable, Network.TESTNET));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test
@@ -59,28 +59,28 @@ class AlpenAddressParserTest {
         String interoperable = "0x00010000010114" + ADDRESS_HEX;
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> AlpenAddressParser.parse(interoperable, Network.SIGNET));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test
     void rejectsBitcoinAddress() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> AlpenAddressParser.parse("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", Network.SIGNET));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test
     void rejectsTruncatedErc7930Address() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> AlpenAddressParser.parse("0x000100000014" + ADDRESS_HEX.substring(0, 20), Network.SIGNET));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test
     void rejectsInvalidEip55Checksum() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> AlpenAddressParser.parse("0xd8dA6BF26964aF9D7eeEd9e03E53415D37aA96046", Network.SIGNET));
-        assertEquals(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
+        assertEquals(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE, exception.getMessage());
     }
 
     @Test
