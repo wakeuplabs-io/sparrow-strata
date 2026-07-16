@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.P2TRAddress;
 import com.sparrowwallet.drongo.protocol.HashIndex;
@@ -11,7 +12,7 @@ import com.sparrowwallet.drongo.wallet.BlockTransactionHashIndex;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.model.AlpenAddress;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
@@ -33,13 +34,13 @@ public final class ReclaimableUtxoFinder {
         }
 
         Network network = wallet.getNetwork();
-        if(StrataBridgeConstants.getBridgeOperatorPubkeyHex(network) == null) {
+        if(StrataBridgeProtocol.getBridgeOperatorPubkeyHex(network) == null) {
             return List.of();
         }
 
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
-                .orElseGet(() -> StrataBridgeConstants.getBridgeOperatorPubkey(network));
+                .orElseGet(() -> StrataBridgeProtocol.getBridgeOperatorPubkey(network));
         byte[] magicBytes = StrataBridgeParametersService.getInstance().getMagicBytes();
         int recoveryDelay = StrataBridgeParametersService.getInstance().getRecoveryDelay();
         Integer currentHeight = AppServices.getCurrentBlockHeight();

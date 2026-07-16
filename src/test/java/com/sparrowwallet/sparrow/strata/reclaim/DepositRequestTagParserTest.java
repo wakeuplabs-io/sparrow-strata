@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.protocol.Script;
@@ -7,7 +8,7 @@ import com.sparrowwallet.drongo.protocol.ScriptType;
 import com.sparrowwallet.drongo.protocol.Transaction;
 import com.sparrowwallet.sparrow.strata.deposit.DrtHeaderAux;
 import com.sparrowwallet.sparrow.strata.deposit.Sps50Encoder;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.model.AlpenAddress;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.model.Eip55Address;
@@ -41,11 +42,11 @@ class DepositRequestTagParserTest {
         Transaction transaction = new Transaction();
         transaction.addOutput(0L, opReturnScript);
 
-        Optional<byte[]> parsed = DepositRequestTagParser.parseRecoveryPk(transaction, StrataBridgeConstants.MAGIC_BYTES);
+        Optional<byte[]> parsed = DepositRequestTagParser.parseRecoveryPk(transaction, StrataBridgeProtocol.MAGIC_BYTES);
         assertTrue(parsed.isPresent());
         assertArrayEquals(recoveryPk, parsed.get());
 
-        Optional<AlpenAddress> destination = DepositRequestTagParser.parseDestinationAddress(transaction, StrataBridgeConstants.MAGIC_BYTES);
+        Optional<AlpenAddress> destination = DepositRequestTagParser.parseDestinationAddress(transaction, StrataBridgeProtocol.MAGIC_BYTES);
         assertTrue(destination.isPresent());
         assertEquals(Eip55Address.parse(DESTINATION_HEX), destination.get());
     }
@@ -55,16 +56,16 @@ class DepositRequestTagParserTest {
         byte[] recoveryPk = Utils.hexToBytes(RECOVERY_PK_HEX);
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse(DESTINATION_HEX));
         DrtHeaderAux headerAux = DrtHeaderAux.create(recoveryPk, descriptor.getDestSubject());
-        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), StrataBridgeConstants.TESTNET_MAGIC_BYTES);
+        Script opReturnScript = Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData(), StrataBridgeProtocol.TESTNET_MAGIC_BYTES);
 
         Transaction transaction = new Transaction();
         transaction.addOutput(0L, opReturnScript);
 
-        Optional<byte[]> parsed = DepositRequestTagParser.parseRecoveryPk(transaction, StrataBridgeConstants.TESTNET_MAGIC_BYTES);
+        Optional<byte[]> parsed = DepositRequestTagParser.parseRecoveryPk(transaction, StrataBridgeProtocol.TESTNET_MAGIC_BYTES);
         assertTrue(parsed.isPresent());
         assertArrayEquals(recoveryPk, parsed.get());
 
-        Optional<AlpenAddress> destination = DepositRequestTagParser.parseDestinationAddress(transaction, StrataBridgeConstants.TESTNET_MAGIC_BYTES);
+        Optional<AlpenAddress> destination = DepositRequestTagParser.parseDestinationAddress(transaction, StrataBridgeProtocol.TESTNET_MAGIC_BYTES);
         assertTrue(destination.isPresent());
         assertEquals(Eip55Address.parse(DESTINATION_HEX), destination.get());
     }
@@ -74,10 +75,10 @@ class DepositRequestTagParserTest {
         Transaction transaction = new Transaction();
         transaction.addOutput(1_000L, ScriptType.P2WPKH.getOutputScript(new byte[20]));
 
-        Optional<byte[]> parsed = DepositRequestTagParser.parseRecoveryPk(transaction, StrataBridgeConstants.MAGIC_BYTES);
+        Optional<byte[]> parsed = DepositRequestTagParser.parseRecoveryPk(transaction, StrataBridgeProtocol.MAGIC_BYTES);
         assertTrue(parsed.isEmpty());
 
-        Optional<AlpenAddress> destination = DepositRequestTagParser.parseDestinationAddress(transaction, StrataBridgeConstants.MAGIC_BYTES);
+        Optional<AlpenAddress> destination = DepositRequestTagParser.parseDestinationAddress(transaction, StrataBridgeProtocol.MAGIC_BYTES);
         assertTrue(destination.isEmpty());
     }
 }

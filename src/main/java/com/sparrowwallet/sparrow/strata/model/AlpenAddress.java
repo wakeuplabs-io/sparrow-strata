@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.model;
 
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.drongo.Utils;
 
 import java.util.Arrays;

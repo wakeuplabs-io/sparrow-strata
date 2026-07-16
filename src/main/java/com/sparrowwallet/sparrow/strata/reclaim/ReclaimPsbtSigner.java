@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.crypto.ECKey;
 import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.Transaction;
@@ -11,7 +12,7 @@ import com.sparrowwallet.drongo.wallet.Keystore;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.sparrow.strata.deposit.DepositRequestLockingScript;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 
 import java.util.List;
@@ -34,7 +35,7 @@ public final class ReclaimPsbtSigner {
 
         byte[] bridgeOperatorPubkey = StrataBridgeKeyVerificationService.getInstance()
                 .getVerifiedBridgeOperatorPubkey()
-                .orElseGet(() -> StrataBridgeConstants.getBridgeOperatorPubkey(wallet.getNetwork()));
+                .orElseGet(() -> StrataBridgeProtocol.getBridgeOperatorPubkey(wallet.getNetwork()));
 
         Transaction transaction = psbt.getTransaction();
         List<TransactionOutput> spentUtxos = psbt.getPsbtInputs().stream().map(PSBTInput::getUtxo).toList();

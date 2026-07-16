@@ -1,8 +1,9 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
-import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -23,9 +24,9 @@ class Sps50EncoderTest {
 
         byte[] tag = Sps50Encoder.encodeTag(headerAux.buildAuxData());
         assertEquals(6 + 32 + descriptor.encodeToBytes().length, tag.length);
-        assertArrayEquals(StrataBridgeConstants.MAGIC_BYTES, new byte[] {tag[0], tag[1], tag[2], tag[3]});
-        assertEquals(StrataBridgeConstants.BRIDGE_V1_SUBPROTOCOL_ID, tag[4]);
-        assertEquals(StrataBridgeConstants.DEPOSIT_REQUEST_TX_TYPE, tag[5]);
+        assertArrayEquals(StrataBridgeProtocol.MAGIC_BYTES, new byte[] {tag[0], tag[1], tag[2], tag[3]});
+        assertEquals(StrataBridgeProtocol.BRIDGE_V1_SUBPROTOCOL_ID, tag[4]);
+        assertEquals(StrataBridgeProtocol.DEPOSIT_REQUEST_TX_TYPE, tag[5]);
         assertEquals(ScriptOpCodes.OP_RETURN, Sps50Encoder.encodeOpReturnScript(headerAux.buildAuxData()).getChunks().get(0).getOpcode());
     }
 

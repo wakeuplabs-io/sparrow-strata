@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.ScriptType;
@@ -42,11 +43,11 @@ public final class DepositTransactionFeeEstimator {
     }
 
     private static Transaction buildRepresentativeDepositTransaction(Network network) {
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(network);
+        byte[] bridgeOperatorPubkey = StrataBridgeProtocol.getBridgeOperatorPubkey(network);
         Script opReturnScript = Sps50Encoder.encodeOpReturnScript(
-                StrataBridgeConstants.DEPOSIT_TX_TYPE,
+                StrataBridgeProtocol.DEPOSIT_TX_TYPE,
                 DtHeaderAux.create(0).buildAuxData(),
-                StrataBridgeConstants.getMagicBytesFallback(network)
+                StrataBridgeProtocol.getMagicBytesFallback(network)
         );
         Script bridgeOutScript = ScriptType.P2TR.getOutputScript(bridgeOperatorPubkey);
 

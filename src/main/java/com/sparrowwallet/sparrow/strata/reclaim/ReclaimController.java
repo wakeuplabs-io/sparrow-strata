@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.KeyPurpose;
@@ -19,7 +20,7 @@ import com.sparrowwallet.sparrow.event.WalletHistoryChangedEvent;
 import com.sparrowwallet.sparrow.control.ReclaimUtxosTreeTable;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.strata.deposit.DepositAmountValidator;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import com.sparrowwallet.sparrow.strata.model.AlpenAddress;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
@@ -106,8 +107,6 @@ public class ReclaimController extends WalletFormController implements Initializ
         reclaimableBalanceLabel.setManaged(balanceSats > 0);
     }
 
-
-
     private void updateButtons() {
         List<ReclaimEntry> selectedEntries = getSelectedEntries();
         selectAll.setDisable(reclaimEntries.isEmpty() || reclaimEntries.size() == selectedEntries.size());
@@ -150,7 +149,7 @@ public class ReclaimController extends WalletFormController implements Initializ
         //remainder as extra fee/dust. The user can still increase the amount; the new deposit form will pull
         //in additional wallet UTXOs to cover the difference.
         long amountSats = depositUtxoAmountSats.isPresent()
-                ? DepositAmountValidator.largestValidAmount(reclaimedTotal, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS)
+                ? DepositAmountValidator.largestValidAmount(reclaimedTotal, depositUtxoAmountSats.getAsLong(), StrataBridgeProtocol.MAX_DEPOSIT_SATS)
                 : 0;
         String destination = getCommonDestination(selectedEntries);
         EventManager.get().post(new DepositActionEvent(wallet, selectedEntries, destination, amountSats));

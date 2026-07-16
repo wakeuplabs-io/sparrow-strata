@@ -1,10 +1,12 @@
 package com.sparrowwallet.sparrow.strata.net;
 
+import com.sparrowwallet.sparrow.strata.StrataNetwork;
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.EventManager;
 import com.sparrowwallet.sparrow.event.StrataBridgeParametersUpdatedEvent;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import io.reactivex.schedulers.Schedulers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,7 +73,7 @@ public class StrataBridgeParametersService {
         if(magicBytes != null) {
             return Arrays.copyOf(magicBytes, magicBytes.length);
         }
-        return Arrays.copyOf(StrataBridgeConstants.getMagicBytesFallback(Network.get()), 4);
+        return Arrays.copyOf(StrataBridgeProtocol.getMagicBytesFallback(Network.get()), 4);
     }
 
     public int getRecoveryDelay() {
@@ -96,7 +98,7 @@ public class StrataBridgeParametersService {
                 }
             }
         }
-        return recoveryDelay != null ? recoveryDelay : StrataBridgeConstants.RECOVER_DELAY;
+        return recoveryDelay != null ? recoveryDelay : StrataBridgeProtocol.RECOVER_DELAY;
     }
 
     public void refresh() {
@@ -105,7 +107,7 @@ public class StrataBridgeParametersService {
         }
 
         Network network = Network.get();
-        String rpcUrl = rpcUrlForTesting != null ? rpcUrlForTesting : StrataBridgeConstants.getStrataRpcUrl(network);
+        String rpcUrl = rpcUrlForTesting != null ? rpcUrlForTesting : StrataNetwork.getStrataRpcUrl(network);
         if(rpcUrl == null) {
             applyFallback(network, true);
             refreshInProgress.set(false);
@@ -135,20 +137,20 @@ public class StrataBridgeParametersService {
     }
 
     private void applyRollupParams(StrataRollupParams params, Network network) {
-        byte[] resolvedMagic = params.getMagicBytes().orElse(StrataBridgeConstants.getMagicBytesFallback(network));
+        byte[] resolvedMagic = params.getMagicBytes().orElse(StrataBridgeProtocol.getMagicBytesFallback(network));
         Long resolvedDeposit = params.getDepositAmountSats().orElse(
-                StrataBridgeConstants.getDepositUtxoAmountSats(network).orElse(StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS));
-        int resolvedRecoveryDelay = params.getRecoveryDelay().orElse(StrataBridgeConstants.RECOVER_DELAY);
+                StrataBridgeProtocol.getDepositUtxoAmountSats(network).orElse(StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS));
+        int resolvedRecoveryDelay = params.getRecoveryDelay().orElse(StrataBridgeProtocol.RECOVER_DELAY);
         apply(resolvedMagic, resolvedDeposit, resolvedRecoveryDelay, network, false, true);
     }
 
     private void applyFallback(Network network, boolean postEvent) {
-        OptionalLong amount = StrataBridgeConstants.getDepositUtxoAmountSats(network);
-        byte[] fallbackMagic = StrataBridgeConstants.getMagicBytesFallback(network);
+        OptionalLong amount = StrataBridgeProtocol.getDepositUtxoAmountSats(network);
+        byte[] fallbackMagic = StrataBridgeProtocol.getMagicBytesFallback(network);
         if(amount.isPresent()) {
-            apply(fallbackMagic, amount.getAsLong(), StrataBridgeConstants.RECOVER_DELAY, network, true, postEvent);
+            apply(fallbackMagic, amount.getAsLong(), StrataBridgeProtocol.RECOVER_DELAY, network, true, postEvent);
         } else {
-            apply(null, null, StrataBridgeConstants.RECOVER_DELAY, network, true, postEvent);
+            apply(null, null, StrataBridgeProtocol.RECOVER_DELAY, network, true, postEvent);
         }
     }
 

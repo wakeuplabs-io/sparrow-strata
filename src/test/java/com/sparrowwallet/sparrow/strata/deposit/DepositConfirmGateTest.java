@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.protocol.ScriptOpCodes;
@@ -15,6 +16,7 @@ import com.sparrowwallet.sparrow.io.ImportException;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.model.Eip55Address;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,9 +37,16 @@ class DepositConfirmGateTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         Network.set(Network.MAINNET);
         StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(true);
         samplePreview = createSamplePreview();
+    }
+
+    @AfterEach
+    void tearDown() {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
+        Network.set(Network.MAINNET);
     }
 
     @Test
@@ -129,8 +138,8 @@ class DepositConfirmGateTest {
         try {
             DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
             return new DepositConfirmGate.DepositDiagramState(
-                    false, true, true, true, descriptor, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS, 2.0,
-                    false, null, preview, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS);
+                    false, true, true, true, descriptor, StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS, 2.0,
+                    false, null, preview, StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS);
         } catch(Exception e) {
             throw new RuntimeException(e);
         }
@@ -141,7 +150,7 @@ class DepositConfirmGateTest {
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         DepositRequestService service = new DepositRequestService(
-                wallet, descriptor, StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS, "deposit",
+                wallet, descriptor, StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS, "deposit",
                 2.0, 2.0, 1.0, 1.0, null, 100, false, false,
                 null, Set.of(), null, recoveryKey);
         return service.createWalletTransaction().walletTransaction();

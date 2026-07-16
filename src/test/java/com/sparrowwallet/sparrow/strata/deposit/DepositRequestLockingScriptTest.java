@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.Utils;
 import com.sparrowwallet.drongo.address.P2TRAddress;
@@ -32,11 +33,11 @@ class DepositRequestLockingScriptTest {
         byte[] bridgeInternalKey = Utils.hexToBytes(BRIDGE_INTERNAL_KEY_HEX);
 
         Script defaultDelayScript = DepositRequestLockingScript.createLockingScript(
-                recoveryPk, bridgeInternalKey, StrataBridgeConstants.RECOVER_DELAY);
+                recoveryPk, bridgeInternalKey, StrataBridgeProtocol.RECOVER_DELAY);
         Script customDelayScript = DepositRequestLockingScript.createLockingScript(recoveryPk, bridgeInternalKey, 504);
 
         P2TRAddress defaultDelayAddress = DepositRequestLockingScript.createBridgeInAddress(
-                recoveryPk, bridgeInternalKey, StrataBridgeConstants.RECOVER_DELAY);
+                recoveryPk, bridgeInternalKey, StrataBridgeProtocol.RECOVER_DELAY);
         P2TRAddress customDelayAddress = DepositRequestLockingScript.createBridgeInAddress(
                 recoveryPk, bridgeInternalKey, 504);
 
