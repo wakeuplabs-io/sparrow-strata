@@ -1,11 +1,8 @@
 package com.sparrowwallet.sparrow.strata.reclaim;
 
 import com.sparrowwallet.drongo.Utils;
-import com.sparrowwallet.drongo.policy.PolicyType;
-import com.sparrowwallet.drongo.protocol.ScriptType;
 import com.sparrowwallet.drongo.psbt.PSBT;
 import com.sparrowwallet.drongo.psbt.PSBTInput;
-import com.sparrowwallet.drongo.wallet.KeystoreSource;
 import com.sparrowwallet.drongo.wallet.Wallet;
 import com.sparrowwallet.drongo.wallet.WalletNode;
 import com.sparrowwallet.sparrow.strata.deposit.WalletRecoveryKeyResolver;
@@ -63,10 +60,7 @@ public final class ReclaimPsbt {
         if(!isReclaimPsbt(psbt) || wallet == null || !wallet.isValid()) {
             return false;
         }
-        if(wallet.getScriptType() != ScriptType.P2TR || wallet.getPolicyType() != PolicyType.SINGLE_HD) {
-            return false;
-        }
-        if(wallet.getKeystores().size() != 1 || wallet.getKeystores().get(0).getSource() != KeystoreSource.SW_SEED) {
+        if(!ReclaimWalletCompatibility.supportsReclaimSigning(wallet)) {
             return false;
         }
         long reclaimInputCount = psbt.getPsbtInputs().stream().filter(ReclaimPsbt::hasInputRecoveryPk).count();
