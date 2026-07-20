@@ -27,6 +27,8 @@ import com.sparrowwallet.sparrow.io.bbqr.BBQRType;
 import com.sparrowwallet.sparrow.net.ElectrumServer;
 import com.sparrowwallet.sparrow.io.Storage;
 import com.sparrowwallet.sparrow.payjoin.Payjoin;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimPsbt;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimPsbtSigner;
 import com.sparrowwallet.sparrow.wallet.Entry;
 import com.sparrowwallet.sparrow.wallet.HashIndexEntry;
 import com.sparrowwallet.sparrow.wallet.TransactionEntry;
@@ -813,7 +815,33 @@ public class HeadersController extends TransactionFormController implements Init
         return null;
     }
 
+    private void clearBroadcastProgress() {
+        if(transactionMempoolService != null) {
+            transactionMempoolService.cancel();
+        }
+        broadcastProgressBar.setProgress(0);
+        broadcastButton.setDisable(false);
+    }
+
+    private boolean walletTracksAllSpentUtxos() {
+        Wallet signingWallet = headersForm.getSigningWallet();
+        if(signingWallet == null) {
+            return false;
+        }
+
+        for(TransactionInput input : headersForm.getTransaction().getInputs()) {
+            boolean tracked = signingWallet.getWalletTxos().entrySet().stream()
+                    .anyMatch(entry -> entry.getKey().getHash().equals(input.getOutpoint().getHash()) && entry.getKey().getIndex() == input.getOutpoint().getIndex());
+            if(!tracked) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private void updateBlockchainForm(BlockTransaction blockTransaction, Integer currentHeight) {
+        clearBroadcastProgress();
         signaturesForm.setVisible(false);
         blockchainForm.setVisible(true);
 
@@ -1155,6 +1183,20 @@ public class HeadersController extends TransactionFormController implements Init
 
     private void signUnencryptedKeystores(Wallet unencryptedWallet) {
         try {
+            if(ReclaimPsbt.isReclaimPsbt(headersForm.getPsbt())) {
+                ReclaimPsbtSigner.sign(unencryptedWallet, headersForm.getPsbt());
+                updateSignedKeystores(headersForm.getSigningWallet());
+                if(headersForm.getPsbt().isFinalized()) {
+                    EventManager.get().post(new PSBTFinalizedEvent(headersForm.getPsbt()));
+                }
+                //A retried deposit's PSBT can mix reclaim inputs with normal wallet inputs - fall through
+                //to sign any remaining, non-reclaim inputs normally rather than returning here.
+                boolean hasNonReclaimInputs = headersForm.getPsbt().getPsbtInputs().stream().anyMatch(input -> !ReclaimPsbt.hasInputRecoveryPk(input));
+                if(!hasNonReclaimInputs) {
+                    return;
+                }
+            }
+
             Map<PSBTInput, WalletNode> signingNodes = unencryptedWallet.getSigningNodes(headersForm.getPsbt());
             List<SilentPayment> silentPayments = unencryptedWallet.computeSilentPaymentOutputs(headersForm.getPsbt(), signingNodes);
             if(!silentPayments.isEmpty()) {
@@ -1278,7 +1320,7 @@ public class HeadersController extends TransactionFormController implements Init
         ElectrumServer.BroadcastTransactionService broadcastTransactionService = new ElectrumServer.BroadcastTransactionService(headersForm.getTransaction(), fee.getValue());
         broadcastTransactionService.setOnSucceeded(workerStateEvent -> {
             //Although we wait for WalletNodeHistoryChangedEvent to indicate tx is in mempool, start a scheduled service to check the script hashes should notifications fail
-            if(headersForm.getSigningWallet() != null) {
+            if(headersForm.getSigningWallet() != null && walletTracksAllSpentUtxos()) {
                 if(transactionMempoolService != null) {
                     transactionMempoolService.cancel();
                 }
@@ -1321,10 +1363,12 @@ public class HeadersController extends TransactionFormController implements Init
                         headersForm.setBlockTransaction(blockTransaction);
                         updateBlockchainForm(blockTransaction, AppServices.getCurrentBlockHeight());
                     }
+                    clearBroadcastProgress();
                     EventManager.get().post(new TransactionReferencesFinishedEvent(headersForm.getTransaction(), blockTransaction));
                 });
                 transactionReferenceService.setOnFailed(failedEvent -> {
                     log.error("Error fetching broadcasted transaction", failedEvent.getSource().getException());
+                    clearBroadcastProgress();
                     EventManager.get().post(new TransactionReferencesFailedEvent(headersForm.getTransaction(), failedEvent.getSource().getException()));
                 });
                 EventManager.get().post(new TransactionReferencesStartedEvent(headersForm.getTransaction()));
@@ -1377,6 +1421,9 @@ public class HeadersController extends TransactionFormController implements Init
                 } else {
                     AppServices.showErrorDialog("Error broadcasting transaction", "The fee for the replacement transaction was insufficient. Increase the fee to try again.");
                 }
+            } else if(failMessage.contains("Locktime requirement not satisfied")) {
+                AppServices.showErrorDialog("Error broadcasting transaction",
+                        "The transaction did not satisfy a timelock on one of its inputs. For Strata reclaim, close this tab, rebuild reclaim from the Reclaim screen, and ensure the deposit has passed the recovery delay.");
             } else {
                 AppServices.showErrorDialog("Error broadcasting transaction", "The server returned an error when broadcasting the transaction. The server response is contained in the log (See Help > Show Log File).");
             }
@@ -1590,8 +1637,12 @@ public class HeadersController extends TransactionFormController implements Init
     @Subscribe
     public void openWallets(OpenWalletsEvent event) {
         if(id.getScene().getWindow().equals(event.getWindow()) && headersForm.getPsbt() != null && headersForm.getBlockTransaction() == null) {
-            List<Wallet> availableWallets = event.getWallets().stream().filter(wallet -> wallet.canSign(headersForm.getPsbt())).sorted(new WalletSignComparator()).collect(Collectors.toList());
-            List<Wallet> signingAllInputsWallets = event.getWallets().stream().filter(wallet -> wallet.canSignAllInputs(headersForm.getPsbt())).sorted(new WalletSignComparator()).collect(Collectors.toList());
+            List<Wallet> availableWallets = event.getWallets().stream()
+                    .filter(wallet -> canSignPsbt(wallet, headersForm.getPsbt()))
+                    .sorted(new WalletSignComparator()).collect(Collectors.toList());
+            List<Wallet> signingAllInputsWallets = event.getWallets().stream()
+                    .filter(wallet -> canSignAllPsbtInputs(wallet, headersForm.getPsbt()))
+                    .sorted(new WalletSignComparator()).collect(Collectors.toList());
             if(availableWallets.isEmpty() || !availableWallets.equals(signingAllInputsWallets)) {
                 for(Wallet wallet : event.getWalletsMap().keySet()) {
                     if(wallet.isValid() && !wallet.getSigningKeystores(headersForm.getPsbt()).isEmpty()) {
@@ -1765,6 +1816,7 @@ public class HeadersController extends TransactionFormController implements Init
             if(transactionMempoolService != null) {
                 transactionMempoolService.cancel();
             }
+            clearBroadcastProgress();
         }
     }
 
@@ -1867,6 +1919,24 @@ public class HeadersController extends TransactionFormController implements Init
     public void hideAmountsStatusChanged(HideAmountsStatusEvent event) {
         transactionDiagram.update(transactionDiagram.getWalletTransaction());
         fee.refresh();
+    }
+
+    private static boolean canSignPsbt(Wallet wallet, PSBT psbt) {
+        if(ReclaimPsbt.isReclaimPsbt(psbt)) {
+            return ReclaimPsbt.canWalletSign(wallet, psbt) || wallet.canSign(psbt);
+        }
+        return wallet.canSign(psbt);
+    }
+
+    private static boolean canSignAllPsbtInputs(Wallet wallet, PSBT psbt) {
+        if(ReclaimPsbt.isReclaimPsbt(psbt)) {
+            if(!ReclaimPsbt.canWalletSign(wallet, psbt)) {
+                return false;
+            }
+            long nonReclaimInputCount = psbt.getPsbtInputs().stream().filter(input -> !ReclaimPsbt.hasInputRecoveryPk(input)).count();
+            return nonReclaimInputCount == 0 || wallet.getSigningNodes(psbt, false).size() == nonReclaimInputCount;
+        }
+        return wallet.canSignAllInputs(psbt);
     }
 
     private static class WalletSignComparator implements Comparator<Wallet> {

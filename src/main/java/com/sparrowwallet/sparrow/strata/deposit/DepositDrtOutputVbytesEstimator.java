@@ -1,9 +1,10 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.protocol.Script;
 import com.sparrowwallet.drongo.protocol.Transaction;
-import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 
@@ -20,7 +21,7 @@ public final class DepositDrtOutputVbytesEstimator {
 
     public static long estimateOutputVbytes(DepositDescriptor descriptor) {
         StrataBridgeParametersService bridgeParameters = StrataBridgeParametersService.getInstance();
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.get());
+        byte[] bridgeOperatorPubkey = StrataBridgeProtocol.getBridgeOperatorPubkey(Network.get());
         return estimateOutputVbytes(
                 descriptor,
                 bridgeParameters.getMagicBytes(),

@@ -14,6 +14,7 @@ import com.sparrowwallet.sparrow.glyphfont.FontAwesome5;
 import com.sparrowwallet.sparrow.io.Config;
 import com.sparrowwallet.sparrow.io.WalletTransactions;
 import com.sparrowwallet.sparrow.net.ExchangeSource;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimWalletCompatibility;
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
 import javafx.event.ActionEvent;
@@ -96,6 +97,8 @@ public class UtxosController extends WalletFormController implements Initializab
         depositSelected.setDisable(true);
         sendSelected.setTooltip(new Tooltip("Send selected UTXOs. Use " + (OsType.getCurrent() == OsType.MACOS ? "Cmd" : "Ctrl") + "+click to select multiple." ));
         depositSelected.setTooltip(new Tooltip("Deposit selected UTXOs to Alpen. Use " + (OsType.getCurrent() == OsType.MACOS ? "Cmd" : "Ctrl") + "+click to select multiple." ));
+        depositSelected.managedProperty().bind(depositSelected.visibleProperty());
+        updateDepositSelectedVisibility();
 
         utxosTable.getSelectionModel().getSelectedIndices().addListener((ListChangeListener<Integer>) c -> {
             List<Entry> selectedEntries = utxosTable.getSelectionModel().getSelectedCells().stream().filter(tp -> tp.getTreeItem() != null).map(tp -> tp.getTreeItem().getValue()).collect(Collectors.toList());
@@ -103,6 +106,10 @@ public class UtxosController extends WalletFormController implements Initializab
             updateButtons(Config.get().getUnitFormat(), Config.get().getBitcoinUnit());
             updateUtxoCount(getWalletForm().getWalletUtxosEntry());
         });
+    }
+
+    private void updateDepositSelectedVisibility() {
+        depositSelected.setVisible(ReclaimWalletCompatibility.supportsReclaimSigning(getWalletForm().getWallet()));
     }
 
     private void updateFields(WalletUtxosEntry walletUtxosEntry) {
@@ -123,7 +130,8 @@ public class UtxosController extends WalletFormController implements Initializab
         selectAll.setDisable(utxosTable.getRoot().getChildren().size() == utxosTable.getSelectionModel().getSelectedCells().size());
         clear.setDisable(selectedEntries.isEmpty());
         sendSelected.setDisable(selectedEntries.isEmpty());
-        depositSelected.setDisable(selectedEntries.isEmpty());
+        updateDepositSelectedVisibility();
+        depositSelected.setDisable(selectedEntries.isEmpty() || !depositSelected.isVisible());
 
         long selectedTotal = selectedEntries.stream().mapToLong(Entry::getValue).sum();
         updateSelectedButtonLabel(sendSelected, "Send Selected", selectedTotal, format, unit);

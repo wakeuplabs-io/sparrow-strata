@@ -4,6 +4,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <?import org.controlsfx.control.SegmentedButton?>
+<?import org.controlsfx.glyphfont.Glyph?>
 
 <BorderPane stylesheets="@wallet.css, @../general.css" styleClass="wallet-pane" xmlns="http://javafx.com/javafx" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.sparrowwallet.sparrow.strata.StrataController">
     <top>
@@ -20,7 +21,17 @@
                     <ToggleButton fx:id="reclaimToggle" text="Reclaim" toggleGroup="$strataFlowToggleGroup" onAction="#selectReclaim" />
                 </buttons>
             </SegmentedButton>
-            <Label fx:id="bridgeKeyError" styleClass="failure" visible="false" managed="false" wrapText="true" />
+            <Label fx:id="reclaimableBalanceLabel" graphicTextGap="5" styleClass="help-label" visible="false" managed="false">
+                <graphic>
+                    <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="11" icon="INFO_CIRCLE" />
+                </graphic>
+            </Label>
+            <Label fx:id="walletCompatibilityError" styleClass="failure" visible="false" managed="false" wrapText="true" />
+            <Label fx:id="bridgeKeyError" styleClass="failure" visible="false" managed="false" wrapText="true" graphicTextGap="5">
+                <graphic>
+                    <Glyph fontFamily="Font Awesome 5 Free Solid" fontSize="11" icon="EXCLAMATION_CIRCLE" styleClass="failure" />
+                </graphic>
+            </Label>
         </HBox>
     </top>
     <center>

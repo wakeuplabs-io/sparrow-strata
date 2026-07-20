@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.KeyPurpose;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.drongo.address.P2TRAddress;
@@ -36,24 +37,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DepositRequestServiceTest {
     private static final String BRIDGE_PRECOMPILE = "5400000000000000000000000000000000000001";
     private static final long UTXO_VALUE = 2_000_000_000L;
-    private static final long DEPOSIT_AMOUNT = StrataBridgeConstants.DEPOSIT_UTXO_AMOUNT_SATS;
+    private static final long DEPOSIT_AMOUNT = StrataBridgeProtocol.DEPOSIT_UTXO_AMOUNT_SATS;
 
     @BeforeEach
     void setUp() {
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         Network.set(Network.MAINNET);
         StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(true);
     }
 
     @AfterEach
     void tearDown() {
-        StrataBridgeKeyVerificationService.getInstance().setChecksDisabled(false);
+        StrataBridgeKeyVerificationService.clearInstanceForTesting();
         StrataBridgeParametersService.clearParametersForTesting();
         Network.set(Network.MAINNET);
+    }
+
+    private static WalletRecoveryKey testRecoveryKey(Wallet wallet) {
+        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
+        WalletNode changeNode = wallet.getNode(KeyPurpose.CHANGE).getChildren().stream().findFirst()
+                .orElseGet(() -> wallet.getFreshNode(KeyPurpose.CHANGE));
+        return WalletRecoveryKey.forTesting(changeNode, recoveryKeyPair.getXOnlyPublicKey());
     }
 
     @Test
     void honorsPresetUtxoSelector() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         BlockTransactionHashIndex utxo1 = wallet.getSpendableUtxos().keySet().stream().findFirst().orElseThrow();
         BlockTransactionHashIndex utxo2 = wallet.getSpendableUtxos().keySet().stream().filter(u -> !u.equals(utxo1)).findFirst().orElseThrow();
 
@@ -76,7 +86,8 @@ class DepositRequestServiceTest {
                 false,
                 List.of(presetSelector),
                 Set.of(),
-                null
+                null,
+                recoveryKey
         );
 
         WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
@@ -90,6 +101,7 @@ class DepositRequestServiceTest {
     @Test
     void bridgeInOutputIncludesDepFee() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
         double feeRate = 2.0;
         long expectedBridgeOutput = DEPOSIT_AMOUNT + DepositFeeRates.calculateDepFee(feeRate);
@@ -106,7 +118,11 @@ class DepositRequestServiceTest {
                 null,
                 100,
                 false,
-                false
+                false,
+                null,
+                Set.of(),
+                null,
+                recoveryKey
         );
 
         WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
@@ -131,12 +147,12 @@ class DepositRequestServiceTest {
     void usesBridgeParametersRecoveryDelayForBridgeInAddress() throws Exception {
         Wallet wallet = createWalletWithTwoUtxos();
         DepositDescriptor descriptor = DepositDescriptor.forAlpenDeposit(Eip55Address.parse("0x" + BRIDGE_PRECOMPILE));
-        RecoveryKeyPair recoveryKeyPair = RecoveryKeyPair.generate();
-        byte[] recoveryPk = recoveryKeyPair.getXOnlyPublicKey();
-        byte[] bridgeOperatorPubkey = StrataBridgeConstants.getBridgeOperatorPubkey(Network.MAINNET);
+        WalletRecoveryKey recoveryKey = testRecoveryKey(wallet);
+        byte[] recoveryPk = recoveryKey.getXOnlyPublicKey();
+        byte[] bridgeOperatorPubkey = StrataBridgeProtocol.getBridgeOperatorPubkey(Network.MAINNET);
 
         StrataBridgeParametersService.setParametersForTesting(
-                StrataBridgeConstants.MAGIC_BYTES, DEPOSIT_AMOUNT, 504);
+                StrataBridgeProtocol.MAGIC_BYTES, DEPOSIT_AMOUNT, 504);
 
         DepositRequestService service = new DepositRequestService(
                 wallet,
@@ -154,7 +170,7 @@ class DepositRequestServiceTest {
                 null,
                 Set.of(),
                 null,
-                recoveryKeyPair
+                recoveryKey
         );
 
         WalletTransaction walletTransaction = service.createWalletTransaction().walletTransaction();
@@ -167,7 +183,7 @@ class DepositRequestServiceTest {
         P2TRAddress expectedAddress = DepositRequestLockingScript.createBridgeInAddress(
                 recoveryPk, bridgeOperatorPubkey, StrataBridgeParametersService.getInstance().getRecoveryDelay());
         P2TRAddress defaultDelayAddress = DepositRequestLockingScript.createBridgeInAddress(
-                recoveryPk, bridgeOperatorPubkey, StrataBridgeConstants.RECOVER_DELAY);
+                recoveryPk, bridgeOperatorPubkey, StrataBridgeProtocol.RECOVER_DELAY);
 
         assertNotEquals(defaultDelayAddress.getAddress(), expectedAddress.getAddress());
         assertEquals(expectedAddress.getAddress(), bridgeOutput.getPayment().getAddress().toString());

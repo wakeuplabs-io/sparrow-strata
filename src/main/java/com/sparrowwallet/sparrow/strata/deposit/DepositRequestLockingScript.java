@@ -35,7 +35,7 @@ public final class DepositRequestLockingScript {
         return new P2TRAddress(outputKey);
     }
 
-    private static Script createRecoveryTapscript(byte[] recoveryPk, int recoveryDelay) {
+    public static Script createRecoveryTapscript(byte[] recoveryPk, int recoveryDelay) {
         if(recoveryPk.length != 32) {
             throw new DepositRequestException("Recovery public key must be 32 bytes");
         }
@@ -93,6 +93,15 @@ public final class DepositRequestLockingScript {
     }
 
     public static byte[] computeTaprootOutputKey(byte[] internalKeyXOnly, Sha256Hash merkleRoot) {
+        return computeTaprootOutputPubKey(internalKeyXOnly, merkleRoot).getPubKeyXCoord();
+    }
+
+    /**
+     * Computes the full tweaked taproot output public key {@code Q = P + t*G}, exposing its y-coordinate
+     * parity as required by BIP341 control blocks for script-path spends (the control block's parity bit
+     * is the parity of the output key Q, not of the internal key P).
+     */
+    public static ECKey computeTaprootOutputPubKey(byte[] internalKeyXOnly, Sha256Hash merkleRoot) {
         byte[] tweakData;
         if(merkleRoot != null) {
             tweakData = new byte[64];
@@ -108,6 +117,6 @@ public final class DepositRequestLockingScript {
             internalKey = internalKey.negate();
         }
 
-        return internalKey.add(ECKey.fromPrivate(tweakHash), true).getPubKeyXCoord();
+        return internalKey.add(ECKey.fromPrivate(tweakHash), true);
     }
 }

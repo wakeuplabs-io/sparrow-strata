@@ -9,6 +9,7 @@ import com.sparrowwallet.sparrow.EventManager;
 import com.sparrowwallet.sparrow.control.ViewPasswordField;
 import com.sparrowwallet.sparrow.event.*;
 import com.sparrowwallet.sparrow.io.Storage;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimWalletCompatibility;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -129,6 +130,7 @@ public class WalletController extends WalletFormController implements Initializa
     public void configure(Wallet wallet) {
         boolean validWallet = wallet.isValid();
         boolean whirlpoolChildWallet = wallet.isWhirlpoolChildWallet();
+        boolean hideStrata = !ReclaimWalletCompatibility.supportsReclaimSigning(wallet);
 
         for(Toggle toggle : walletMenu.getToggles()) {
             if(toggle.getUserData().equals(Function.SETTINGS)) {
@@ -141,7 +143,19 @@ public class WalletController extends WalletFormController implements Initializa
                 }
 
                 ((ToggleButton)toggle).setDisable(!validWallet);
-                ((ToggleButton)toggle).setVisible(!(whirlpoolChildWallet && toggle.getUserData().equals(Function.RECEIVE)));
+                ((ToggleButton)toggle).setVisible(!(
+                        (whirlpoolChildWallet && toggle.getUserData().equals(Function.RECEIVE))
+                        || (hideStrata && toggle.getUserData().equals(Function.STRATA))
+                ));
+            }
+        }
+
+        Toggle selected = walletMenu.getSelectedToggle();
+        if(selected != null && !((ToggleButton)selected).isVisible()) {
+            if(validWallet) {
+                selectFunction(Function.TRANSACTIONS);
+            } else {
+                selectFunction(Function.SETTINGS);
             }
         }
     }

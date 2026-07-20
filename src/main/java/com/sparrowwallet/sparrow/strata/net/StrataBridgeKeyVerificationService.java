@@ -1,10 +1,12 @@
 package com.sparrowwallet.sparrow.strata.net;
 
+import com.sparrowwallet.sparrow.strata.StrataNetwork;
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
 import com.sparrowwallet.sparrow.AppServices;
 import com.sparrowwallet.sparrow.EventManager;
 import com.sparrowwallet.sparrow.event.StrataBridgeKeyVerificationUpdatedEvent;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import io.reactivex.schedulers.Schedulers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StrataBridgeKeyVerificationService {
     private static final Logger log = LoggerFactory.getLogger(StrataBridgeKeyVerificationService.class);
+
+    public static final String BRIDGE_KEY_MISMATCH_MESSAGE = "Bridge key mismatch. Please update Sparrow (Strata Edition) and try again.";
+    public static final String BRIDGE_KEY_UNAVAILABLE_MESSAGE = "Bridge key unavailable. Please try again later.";
 
     public enum StrataBridgeKeyStatus {
         VERIFIED,
@@ -26,7 +31,7 @@ public class StrataBridgeKeyVerificationService {
     private static String verificationUrlForTesting;
 
     private volatile StrataBridgeKeyStatus status = StrataBridgeKeyStatus.UNAVAILABLE;
-    private volatile String message = StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE;
+    private volatile String message = BRIDGE_KEY_UNAVAILABLE_MESSAGE;
     private volatile boolean checksDisabled;
     private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
 
@@ -40,7 +45,7 @@ public class StrataBridgeKeyVerificationService {
         return instance;
     }
 
-    static void clearInstanceForTesting() {
+    public static void clearInstanceForTesting() {
         instance = null;
         verificationUrlForTesting = null;
     }
@@ -76,7 +81,7 @@ public class StrataBridgeKeyVerificationService {
         }
         Network network = Network.get();
         try {
-            return Optional.of(StrataBridgeConstants.getBridgeOperatorPubkey(network));
+            return Optional.of(StrataBridgeProtocol.getBridgeOperatorPubkey(network));
         } catch(IllegalStateException e) {
             return Optional.empty();
         }
@@ -96,11 +101,11 @@ public class StrataBridgeKeyVerificationService {
         Network network = Network.get();
         String verificationUrl = verificationUrlForTesting != null
                 ? verificationUrlForTesting
-                : StrataBridgeConstants.getBridgeKeyVerificationUrl(network);
-        String hardcodedHex = StrataBridgeConstants.getBridgeOperatorPubkeyHex(network);
+                : StrataNetwork.getBridgeKeyVerificationUrl(network);
+        String hardcodedHex = StrataBridgeProtocol.getBridgeOperatorPubkeyHex(network);
 
         if(verificationUrl == null || hardcodedHex == null) {
-            setStatus(StrataBridgeKeyStatus.UNAVAILABLE, StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE);
+            setStatus(StrataBridgeKeyStatus.UNAVAILABLE, BRIDGE_KEY_UNAVAILABLE_MESSAGE);
             refreshInProgress.set(false);
             return;
         }
@@ -110,7 +115,7 @@ public class StrataBridgeKeyVerificationService {
                 StrataRpcClient client = new StrataRpcClient(AppServices.getHttpClientService(), verificationUrl);
                 Optional<String> remoteHex = client.getBridgeOperatorPubkeyHex();
                 if(remoteHex.isEmpty()) {
-                    setStatus(StrataBridgeKeyStatus.UNAVAILABLE, StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE);
+                    setStatus(StrataBridgeKeyStatus.UNAVAILABLE, BRIDGE_KEY_UNAVAILABLE_MESSAGE);
                     return;
                 }
 
@@ -121,14 +126,14 @@ public class StrataBridgeKeyVerificationService {
                         log.info("Bridge operator pubkey verified against {}", verificationUrl);
                     }
                 } else {
-                    setStatus(StrataBridgeKeyStatus.MISMATCH, StrataBridgeConstants.BRIDGE_KEY_MISMATCH_MESSAGE);
+                    setStatus(StrataBridgeKeyStatus.MISMATCH, BRIDGE_KEY_MISMATCH_MESSAGE);
                     if(log.isWarnEnabled()) {
                         log.warn("Bridge operator pubkey mismatch: hardcoded {} vs remote {} from {}",
                                 normalizedHardcoded, remoteHex.get(), verificationUrl);
                     }
                 }
             } catch(Exception e) {
-                setStatus(StrataBridgeKeyStatus.UNAVAILABLE, StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE);
+                setStatus(StrataBridgeKeyStatus.UNAVAILABLE, BRIDGE_KEY_UNAVAILABLE_MESSAGE);
                 if(log.isWarnEnabled()) {
                     log.warn("Failed to verify bridge operator pubkey from {}", verificationUrl, e);
                 }

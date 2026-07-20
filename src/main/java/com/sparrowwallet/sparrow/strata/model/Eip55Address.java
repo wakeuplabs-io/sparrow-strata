@@ -1,8 +1,10 @@
 package com.sparrowwallet.sparrow.strata.model;
 
+import com.sparrowwallet.sparrow.strata.protocol.AlpenConstants;
 import com.sparrowwallet.drongo.Utils;
-import com.sparrowwallet.sparrow.strata.model.crypto.Keccak256;
+import org.bouncycastle.crypto.digests.KeccakDigest;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 public final class Eip55Address {
@@ -13,28 +15,28 @@ public final class Eip55Address {
 
     public static AlpenAddress parse(String input) {
         if(input == null) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         String trimmed = input.trim();
         if(trimmed.isEmpty() || looksLikeBitcoinAddress(trimmed)) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         boolean hasPrefix = trimmed.regionMatches(true, 0, "0x", 0, 2);
         String hexBody = hasPrefix ? trimmed.substring(2) : trimmed;
         if(hexBody.length() != HEX_LENGTH) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         for(int i = 0; i < hexBody.length(); i++) {
             if(!AlpenAddress.isHexDigit(hexBody.charAt(i))) {
-                throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+                throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
             }
         }
 
         if(hasMixedCase(hexBody) && !isValidChecksum(trimmed)) {
-            throw new IllegalArgumentException(AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            throw new IllegalArgumentException(AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
         }
 
         return new AlpenAddress(AlpenAddress.parseHexBytes(hexBody, AlpenConstants.EVM_ADDRESS_BYTES));
@@ -81,7 +83,7 @@ public final class Eip55Address {
         String prefixed = address.startsWith("0x") || address.startsWith("0X") ? address : "0x" + address;
         String body = prefixed.substring(2);
         String lower = body.toLowerCase(Locale.ROOT);
-        byte[] hash = Keccak256.hashAsciiLowercase(lower);
+        byte[] hash = keccak256AsciiLowercase(lower);
         String hashHex = Utils.bytesToHex(hash);
         StringBuilder checksummed = new StringBuilder("0x");
         for(int i = 0; i < lower.length(); i++) {
@@ -95,5 +97,17 @@ public final class Eip55Address {
             checksummed.append(c);
         }
         return prefixed.equals(checksummed.toString());
+    }
+
+    private static byte[] keccak256(byte[] input) {
+        KeccakDigest digest = new KeccakDigest(256);
+        digest.update(input, 0, input.length);
+        byte[] output = new byte[32];
+        digest.doFinal(output, 0);
+        return output;
+    }
+
+    private static byte[] keccak256AsciiLowercase(String value) {
+        return keccak256(value.toLowerCase(Locale.ROOT).getBytes(StandardCharsets.US_ASCII));
     }
 }

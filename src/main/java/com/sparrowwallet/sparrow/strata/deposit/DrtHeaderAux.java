@@ -1,5 +1,6 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import java.util.Arrays;
 
 public final class DrtHeaderAux {
@@ -15,9 +16,9 @@ public final class DrtHeaderAux {
         if(recoveryPk == null || recoveryPk.length != 32) {
             throw new DepositRequestException("Recovery public key must be 32 bytes");
         }
-        if(destination == null || destination.length > StrataBridgeConstants.MAX_DRT_DESTINATION_BYTES) {
+        if(destination == null || destination.length > StrataBridgeProtocol.MAX_DRT_DESTINATION_BYTES) {
             throw new DepositRequestException("Deposit descriptor exceeds maximum DRT destination size of "
-                    + StrataBridgeConstants.MAX_DRT_DESTINATION_BYTES + " bytes");
+                    + StrataBridgeProtocol.MAX_DRT_DESTINATION_BYTES + " bytes");
         }
         return new DrtHeaderAux(Arrays.copyOf(recoveryPk, recoveryPk.length), Arrays.copyOf(destination, destination.length));
     }

@@ -1,5 +1,7 @@
 package com.sparrowwallet.sparrow.strata.deposit;
 
+import com.sparrowwallet.sparrow.strata.StrataNetwork;
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.google.common.eventbus.Subscribe;
 import com.sparrowwallet.drongo.BitcoinUnit;
 import com.sparrowwallet.drongo.Utils;
@@ -32,8 +34,10 @@ import com.sparrowwallet.sparrow.strata.net.StrataBridgeKeyVerificationService;
 import com.sparrowwallet.sparrow.strata.net.StrataBridgeParametersService;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParseResult;
 import com.sparrowwallet.sparrow.strata.model.AlpenAddressParser;
-import com.sparrowwallet.sparrow.strata.model.AlpenConstants;
 import com.sparrowwallet.sparrow.strata.model.DepositDescriptor;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimEntry;
+import com.sparrowwallet.sparrow.strata.reclaim.ReclaimTransactionBuilder;
+import com.sparrowwallet.sparrow.strata.reclaim.RetryDepositTransactionBuilder;
 import com.sparrowwallet.sparrow.wallet.OptimizationStrategy;
 import com.sparrowwallet.sparrow.wallet.WalletFormController;
 import javafx.animation.PauseTransition;
@@ -181,6 +185,8 @@ public class DepositController extends WalletFormController implements Initializ
     @FXML
     private Button clearButton;
 
+    private Label walletCompatibilityErrorLabel;
+
     private ValidationSupport validationSupport;
 
     private DepositFeeRateSection feeRateSection;
@@ -192,6 +198,7 @@ public class DepositController extends WalletFormController implements Initializ
     private PauseTransition feeUpdatePause;
 
     private final BooleanProperty insufficientInputsProperty = new SimpleBooleanProperty(false);
+    private final StringProperty walletCompatibilityErrorProperty = new SimpleStringProperty();
 
     private final BooleanProperty emptyAmountProperty = new SimpleBooleanProperty(true);
 
@@ -208,6 +215,8 @@ public class DepositController extends WalletFormController implements Initializ
     private final Set<WalletNode> excludedChangeNodes = new HashSet<>();
 
     private final StringProperty utxoLabelSelectionProperty = new SimpleStringProperty("");
+
+    private List<ReclaimEntry> retryReclaimEntries = List.of();
 
     private final ChangeListener<String> amountListener = new ChangeListener<>() {
         @Override
@@ -252,6 +261,10 @@ public class DepositController extends WalletFormController implements Initializ
         EventManager.get().register(this);
     }
 
+    public void setWalletCompatibilityErrorLabel(Label walletCompatibilityErrorLabel) {
+        this.walletCompatibilityErrorLabel = walletCompatibilityErrorLabel;
+    }
+
     @Override
     public void initializeView() {
         feeRateSection = new DepositFeeRateSection(new DepositFeeRateSection.DepositFeeControls(
@@ -265,8 +278,10 @@ public class DepositController extends WalletFormController implements Initializ
         fee.textProperty().addListener(feeListener);
 
         previewCoordinator = new DepositFeePreviewCoordinator(
-                (requestKey, depositLabel, recoveryKeyPair) -> new DepositFeeService(
+                getWalletForm().getWallet(),
+                (requestKey, depositLabel, recoveryKey) -> new DepositFeeService(
                         getWalletForm().getWallet(),
+                        retryReclaimEntries,
                         requestKey.descriptor(),
                         requestKey.amountSats(),
                         depositLabel,
@@ -281,10 +296,11 @@ public class DepositController extends WalletFormController implements Initializ
                         getUtxoSelectors(),
                         excludedChangeNodes,
                         getTxoFilters(),
-                        recoveryKeyPair),
+                        recoveryKey),
                 new DepositFeePreviewCoordinator.Listener() {
                     @Override
                     public void onPreviewSucceeded(WalletTransaction walletTransaction, DepositFeeRequestKey requestKey, long amountSats) {
+                        walletCompatibilityErrorProperty.set(null);
                         insufficientInputsProperty.set(false);
                         walletTransactionProperty.setValue(walletTransaction);
                         applyTransactionDiagramState();
@@ -297,6 +313,20 @@ public class DepositController extends WalletFormController implements Initializ
                     public void onPreviewFailed(boolean insufficientFunds) {
                         clearWalletTransactionPreview();
                         insufficientInputsProperty.set(insufficientFunds);
+                        revalidateAmount();
+                        revalidateFee();
+                        applyTransactionDiagramState();
+                        updateConfirmButton();
+                    }
+
+                    @Override
+                    public void onWalletIncompatible(String message) {
+                        walletCompatibilityErrorProperty.set(message);
+                        clearWalletTransactionPreview();
+                        insufficientInputsProperty.set(false);
+                        if(!feeRateSection.isUserFeeSet()) {
+                            feeRateSection.clearFee();
+                        }
                         revalidateAmount();
                         revalidateFee();
                         applyTransactionDiagramState();
@@ -318,6 +348,7 @@ public class DepositController extends WalletFormController implements Initializ
         addValidation();
         initializeAmountFields();
         initializeCoinControl();
+        updateWalletCompatibilityError();
         updateBridgeLinkVisibility();
         StrataBridgeParametersService.getInstance().refresh();
         StrataBridgeKeyVerificationService.getInstance().refresh();
@@ -328,8 +359,8 @@ public class DepositController extends WalletFormController implements Initializ
 
     private void updateBridgeLinkVisibility() {
         Network network = Network.get();
-        String statusUrl = StrataBridgeConstants.getBridgeStatusUrl(network);
-        String withdrawalUrl = StrataBridgeConstants.getBridgeWithdrawalUrl(network);
+        String statusUrl = StrataNetwork.getBridgeStatusUrl(network);
+        String withdrawalUrl = StrataNetwork.getBridgeWithdrawalUrl(network);
         depositStatusLink.setVisible(statusUrl != null);
         depositStatusLink.setManaged(statusUrl != null);
         bridgeWithdrawalsLink.setVisible(withdrawalUrl != null);
@@ -338,12 +369,12 @@ public class DepositController extends WalletFormController implements Initializ
 
     @FXML
     public void openDepositStatus(ActionEvent event) {
-        openBridgeUrl(StrataBridgeConstants.getBridgeStatusUrl(Network.get()));
+        openBridgeUrl(StrataNetwork.getBridgeStatusUrl(Network.get()));
     }
 
     @FXML
     public void openBridgeWithdrawals(ActionEvent event) {
-        openBridgeUrl(StrataBridgeConstants.getBridgeWithdrawalUrl(Network.get()));
+        openBridgeUrl(StrataNetwork.getBridgeWithdrawalUrl(Network.get()));
     }
 
     private void openBridgeUrl(String url) {
@@ -373,6 +404,12 @@ public class DepositController extends WalletFormController implements Initializ
         insufficientInputsProperty.addListener((observable, oldValue, newValue) -> {
             revalidateAmount();
             revalidateFee();
+            applyTransactionDiagramState();
+            updateConfirmButton();
+        });
+
+        walletCompatibilityErrorProperty.addListener((observable, oldValue, newValue) -> {
+            syncWalletCompatibilityErrorLabel();
             applyTransactionDiagramState();
             updateConfirmButton();
         });
@@ -432,7 +469,7 @@ public class DepositController extends WalletFormController implements Initializ
 
     private DepositFeeRequestKey buildFeeRequestKey(DepositDescriptor descriptor, long amountSats, double sliderFeeRate, Long userFee, String depositLabel) {
         OptimizationStrategy optimizationStrategy = (OptimizationStrategy)optimizationToggleGroup.getSelectedToggle().getUserData();
-        int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes);
+        int coinControlHash = Objects.hash(utxoSelectorProperty.get(), txoFilterProperty.get(), excludedChangeNodes, retryReclaimEntries);
         return new DepositFeeRequestKey(descriptor, amountSats, sliderFeeRate, feeRateSection.getSelectionFeeRate(), userFee, depositLabel, optimizationStrategy, coinControlHash);
     }
 
@@ -464,7 +501,7 @@ public class DepositController extends WalletFormController implements Initializ
         if(depositUtxoAmountSats.isEmpty()) {
             return Optional.of("Deposit denomination is not available for this network");
         }
-        return DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        return DepositAmountValidator.validate(amountSats, depositUtxoAmountSats.getAsLong(), StrataBridgeProtocol.MAX_DEPOSIT_SATS);
     }
 
     private ValidationResult validateDepositAddress(Control control, String value) {
@@ -489,7 +526,7 @@ public class DepositController extends WalletFormController implements Initializ
         } catch(IllegalArgumentException e) {
             String message = e.getMessage();
             if(message == null || message.isBlank() || "Deposit address is required".equals(message)) {
-                message = AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE;
+                message = AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE;
             }
             return new DepositAddressEvaluation(null, message);
         }
@@ -587,7 +624,10 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private void updateMaxClearButtons(UtxoSelector utxoSelector, TxoFilter txoFilter) {
-        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+        if(!retryReclaimEntries.isEmpty()) {
+            int num = retryReclaimEntries.size();
+            utxoLabelSelectionProperty.set(" (" + num + " UTXO" + (num != 1 ? "s" : "") + " selected)");
+        } else if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
             int num = presetUtxoSelector.getPresetUtxos().size();
             String selection = " (" + num + " UTXO" + (num != 1 ? "s" : "") + " selected)";
             utxoLabelSelectionProperty.set(selection);
@@ -611,11 +651,26 @@ public class DepositController extends WalletFormController implements Initializ
     }
 
     private long getAvailableBalanceSats() {
+        long retryReclaimedTotalSats = retryReclaimEntries.stream().mapToLong(ReclaimEntry::getValue).sum();
         UtxoSelector utxoSelector = utxoSelectorProperty.get();
         if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
-            return presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+            return retryReclaimedTotalSats + presetUtxoSelector.getPresetUtxos().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
         }
-        return getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+        return retryReclaimedTotalSats + getWalletForm().getWallet().getSpendableUtxos().keySet().stream().mapToLong(BlockTransactionHashIndex::getValue).sum();
+    }
+
+    /**
+     * The number of wallet-owned inputs (i.e. excluding any retry-reclaim inputs, which are costed
+     * separately) that Max would actually spend from - every preset/coin-controlled UTXO, or the
+     * wallet's entire spendable set otherwise, mirroring {@link #getAvailableBalanceSats()} and the
+     * {@code MaxUtxoSelector} used to build the real transaction.
+     */
+    private int getMaxWalletInputCount() {
+        UtxoSelector utxoSelector = utxoSelectorProperty.get();
+        if(utxoSelector instanceof PresetUtxoSelector presetUtxoSelector) {
+            return presetUtxoSelector.getPresetUtxos().size();
+        }
+        return getWalletForm().getWallet().getSpendableUtxos().size();
     }
 
     private void updatePrivacyAnalysis(WalletTransaction walletTransaction) {
@@ -684,7 +739,7 @@ public class DepositController extends WalletFormController implements Initializ
             spendableBalance = Math.max(0, balanceSats - reservedForFees);
         }
 
-        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeConstants.MAX_DEPOSIT_SATS);
+        long maxAmount = DepositAmountValidator.largestValidAmount(spendableBalance, depositUtxoAmountSats.getAsLong(), StrataBridgeProtocol.MAX_DEPOSIT_SATS);
         if(maxAmount > 0) {
             setAmountValueSats(maxAmount);
             if(selectMaxToggle) {
@@ -763,6 +818,8 @@ public class DepositController extends WalletFormController implements Initializ
         utxoSelectorProperty.setValue(null);
         txoFilterProperty.setValue(null);
         excludedChangeNodes.clear();
+        retryReclaimEntries = List.of();
+        utxoLabelSelectionProperty.set("");
         previewCoordinator.resetRecoveryKey();
         clearWalletTransactionPreview();
         getWalletForm().setCreatedWalletTransaction(null);
@@ -888,10 +945,25 @@ public class DepositController extends WalletFormController implements Initializ
         transactionDiagram.update(walletTransaction);
     }
 
+    private void updateWalletCompatibilityError() {
+        Optional<String> error = WalletRecoveryKeySelector.getCompatibilityError(getWalletForm().getWallet());
+        walletCompatibilityErrorProperty.set(error.orElse(null));
+    }
+
+    private void syncWalletCompatibilityErrorLabel() {
+        if(walletCompatibilityErrorLabel == null) {
+            return;
+        }
+        String message = walletCompatibilityErrorProperty.get();
+        walletCompatibilityErrorLabel.setVisible(message != null);
+        walletCompatibilityErrorLabel.setText(message);
+    }
+
     private void updateConfirmButton() {
         boolean validationInvalid = validationSupport != null && validationSupport.isInvalid();
+        boolean walletIncompatible = walletCompatibilityErrorProperty.get() != null;
         confirmButton.setDisable(!DepositConfirmGate.isConfirmEnabled(new DepositConfirmGate.DepositConfirmState(
-                validationInvalid,
+                validationInvalid || walletIncompatible,
                 depositTo.getText() != null && !depositTo.getText().isBlank(),
                 label.getText() != null && !label.getText().isBlank(),
                 amount.getText() != null && !amount.getText().isBlank(),
@@ -985,7 +1057,9 @@ public class DepositController extends WalletFormController implements Initializ
 
         Wallet wallet = getWalletForm().getWallet();
         long depFee = DepositFeeRates.calculateDepFee(sliderFeeRate);
-        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * sliderFeeRate);
+        //Max sweeps every available wallet UTXO into a single deposit input set (like Send's Max), so the
+        //reserved fee must cover all of them, not just one.
+        long inputFee = (long)Math.ceil(wallet.getInputVbytes() * getMaxWalletInputCount() * sliderFeeRate);
         DepositDescriptor descriptor = getDepositDescriptor();
         if(descriptor == null) {
             descriptor = DepositDrtOutputVbytesEstimator.conservativeDescriptorForEstimate();
@@ -993,7 +1067,9 @@ public class DepositController extends WalletFormController implements Initializ
         long outputVbytes = DepositDrtOutputVbytesEstimator.estimateOutputVbytes(descriptor);
         long outputFee = (long)Math.ceil(outputVbytes * sliderFeeRate);
         long changeCost = wallet.getCostOfChange(sliderFeeRate, feeRateSection.getMinimumFeeRate());
-        return depFee + inputFee + outputFee + changeCost;
+        long reclaimInputsFee = retryReclaimEntries.isEmpty() ? 0
+                : (long)Math.ceil(ReclaimTransactionBuilder.RECLAIM_INPUT_VBYTES * retryReclaimEntries.size() * sliderFeeRate);
+        return depFee + inputFee + outputFee + changeCost + reclaimInputsFee;
     }
 
     @FXML
@@ -1005,7 +1081,7 @@ public class DepositController extends WalletFormController implements Initializ
 
         DepositDescriptor descriptor = getDepositDescriptor();
         if(descriptor == null) {
-            AppServices.showErrorDialog("Invalid deposit", AlpenConstants.INVALID_ALPEN_ADDRESS_MESSAGE);
+            AppServices.showErrorDialog("Invalid deposit", AlpenAddressParser.INVALID_ALPEN_ADDRESS_MESSAGE);
             return;
         }
 
@@ -1024,8 +1100,16 @@ public class DepositController extends WalletFormController implements Initializ
 
         addWalletTransactionNodes(walletTransaction);
         getWalletForm().setCreatedWalletTransaction(walletTransaction);
-        PSBT psbt = walletTransaction.createPSBT();
-        DepositPsbtOrdering.align(psbt, walletTransaction);
+
+        PSBT psbt;
+        if(!retryReclaimEntries.isEmpty()) {
+            List<ReclaimTransactionBuilder.ReclaimSpendInput> spendInputs =
+                    ReclaimTransactionBuilder.resolveSpendInputs(getWalletForm().getWallet(), retryReclaimEntries);
+            psbt = RetryDepositTransactionBuilder.createPsbt(getWalletForm().getWallet(), walletTransaction, spendInputs);
+        } else {
+            psbt = walletTransaction.createPSBT();
+            DepositPsbtOrdering.align(psbt, walletTransaction);
+        }
         EventManager.get().post(new ViewPSBTEvent(confirmButton.getScene().getWindow(), label.getText(), null, psbt));
     }
 
@@ -1189,6 +1273,33 @@ public class DepositController extends WalletFormController implements Initializ
             updateMaxButton();
             updateFee();
         }
+    }
+
+    /**
+     * Pre-fills the destination and amount for a retried deposit, without reusing any reclaimed UTXO
+     * as an input. Used as a fallback when no reclaim selection is available.
+     */
+    public void applyRetryPrefill(String destination, Long amountSats) {
+        if(destination != null && !destination.isBlank()) {
+            depositTo.setText(destination);
+        }
+        if(amountSats != null && amountSats > 0) {
+            setAmountValueSats(amountSats);
+        }
+        updateMaxButton();
+        updateFee();
+    }
+
+    /**
+     * Retries a deposit using the selected reclaimed UTXO(s) as coin-control input(s), spent via their
+     * recovery script path. Additional wallet UTXOs are drawn in automatically to cover any shortfall
+     * between the reclaimed value and the requested amount, or to pay fees. If the reclaimed value
+     * exceeds the requested amount, the excess is returned as ordinary wallet change.
+     */
+    public void applyRetrySelection(List<ReclaimEntry> reclaimEntries, String destination, Long amountSats) {
+        this.retryReclaimEntries = reclaimEntries == null ? List.of() : List.copyOf(reclaimEntries);
+        updateMaxClearButtons(utxoSelectorProperty.get(), txoFilterProperty.get());
+        applyRetryPrefill(destination, amountSats);
     }
 
     @Subscribe

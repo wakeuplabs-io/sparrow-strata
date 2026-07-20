@@ -1,7 +1,8 @@
 package com.sparrowwallet.sparrow.strata.net;
 
+import com.sparrowwallet.sparrow.strata.protocol.StrataBridgeProtocol;
 import com.sparrowwallet.drongo.Network;
-import com.sparrowwallet.sparrow.strata.deposit.StrataBridgeConstants;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,10 +28,10 @@ class StrataBridgeKeyVerificationServiceTest {
 
     @Test
     void reportsVerifiedOnMatch() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
-        String hardcoded = StrataBridgeConstants.getBridgeOperatorPubkeyHex(Network.get());
+        String hardcoded = StrataBridgeProtocol.getBridgeOperatorPubkeyHex(Network.get());
         try(StrataBridgeKeyMockServer server = new StrataBridgeKeyMockServer(hardcoded)) {
             StrataBridgeKeyVerificationService.setVerificationUrlForTesting(server.getUrl());
 
@@ -43,7 +44,7 @@ class StrataBridgeKeyVerificationServiceTest {
 
     @Test
     void reportsMismatchOnMismatch() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         try(StrataBridgeKeyMockServer server = new StrataBridgeKeyMockServer("00")) {
@@ -53,13 +54,13 @@ class StrataBridgeKeyVerificationServiceTest {
             awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH);
 
             assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.MISMATCH, service.getStatus());
-            assertEquals(StrataBridgeConstants.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
+            assertEquals(StrataBridgeKeyVerificationService.BRIDGE_KEY_MISMATCH_MESSAGE, service.getMessage());
         }
     }
 
     @Test
     void reportsUnavailableOnUnreachable() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         StrataBridgeKeyVerificationService.setVerificationUrlForTesting("http://127.0.0.1:1/");
@@ -68,12 +69,12 @@ class StrataBridgeKeyVerificationServiceTest {
         awaitStatus(service, StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE);
 
         assertEquals(StrataBridgeKeyVerificationService.StrataBridgeKeyStatus.UNAVAILABLE, service.getStatus());
-        assertEquals(StrataBridgeConstants.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
+        assertEquals(StrataBridgeKeyVerificationService.BRIDGE_KEY_UNAVAILABLE_MESSAGE, service.getMessage());
     }
 
     @Test
     void allowsDepositsWhenChecksDisabled() throws Exception {
-        Network.set(Network.TESTNET);
+        Network.set(Network.SIGNET);
         StrataBridgeKeyVerificationService service = StrataBridgeKeyVerificationService.getInstance();
 
         service.setChecksDisabled(true);
